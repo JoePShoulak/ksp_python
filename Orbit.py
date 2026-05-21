@@ -7,7 +7,7 @@ class Orbit:
                                                 # TODO: Confirm that's the right choice
         self.argp = argument_of_periapsis       # in degrees
         self.ttp = time_to_periapsis            # TODO: Determine correct units
-        self.lan = longitude_of_ascending_node      # in degrees, usually from the vernal equinox
+        self.lan = longitude_of_ascending_node  # in degrees, usually from the vernal equinox
                                                 # TODO: Confirm that's correct
 
         # Other important properties that can be used in part of the signature to define the orbit
