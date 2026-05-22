@@ -1,6 +1,5 @@
 from flask import Flask, jsonify
-
-from main import earth_orbit
+from Orbit import earth_orbit
 
 app = Flask('KSP Interface app')
 
