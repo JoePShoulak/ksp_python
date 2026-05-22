@@ -17,4 +17,4 @@ ttp = (earth_perihelion_date - datetime.now(timezone.utc)).total_seconds()
 
 earth_orbit = Orbit(149600000, 0.0167086, 7.155, 288.1, ttp, 147.9)
 print(earth_orbit)
-# print([earth_orbit])
+

@@ -6,9 +6,9 @@ class Orbit:
         self.inc = inclination                  # in degrees, to parent body's equator, not invariable plane 
                                                 # TODO: Confirm that's the right choice
         self.argp = argument_of_periapsis       # in degrees
-        self.ttp = time_to_periapsis            # TODO: Determine correct units
         self.lan = longitude_of_ascending_node  # in degrees, usually from the vernal equinox
                                                 # TODO: Confirm that's correct
+        self.ttp = time_to_periapsis            # TODO: Determine correct units
 
         # Other important properties that can be used in part of the signature to define the orbit
         # or derived from the above properties:
@@ -19,5 +19,17 @@ class Orbit:
 
     def __str__(self):
         return f"Orbit(sma={self.sma}, ecc={self.ecc}, inc={self.inc}, argP={self.argp}, ttp={self.ttp}, lan={self.lan})"
+    
     def __repr__(self):
-        return self.__str__() # TODO: Do I need a different __repr__?
+        return self.__str__()
+
+    def dict(self):
+        return {
+            "sma": self.sma,
+            "ecc": self.ecc,
+            "inc": self.inc,
+            "argp": self.argp,
+            "lan": self.lan,
+            "ttp": self.ttp
+        }
+        
