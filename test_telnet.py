@@ -45,6 +45,6 @@ class kOSProcessor:
   def run_script(self, script, *args):
     self.send_line(f"RUNPATH(\"0:/boot/{script}.ks {" ".join(args)}\").")
 
-kos = kOSProcessor()
-kos.connect()
-kos.run_script("rocket")
+# kos = kOSProcessor()
+# kos.connect()
+# kos.run_script("rocket")

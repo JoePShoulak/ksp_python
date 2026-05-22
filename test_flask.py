@@ -1,6 +1,10 @@
-from flask import Flask, jsonify
+from flask import Flask, jsonify # type: ignore
 from Orbit import earth_orbit
 from test_krpc import launch_rocket, land_rocket, test
+from test_telnet import kOSProcessor
+
+kos = kOSProcessor()
+kos.connect()
 
 app = Flask('KSP Interface app')
 
@@ -37,7 +41,7 @@ def show_button():
 """
 @app.route('/actions/launch_rocket', methods=['POST'])
 def launch_rocket_route():
-    launch_rocket()
+    kos.run_script("rocket")
     return "The rocket has been launched"
 @app.route('/actions/land_rocket', methods=['POST'])
 def land_rocket_route():
