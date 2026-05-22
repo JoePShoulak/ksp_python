@@ -1,5 +1,0 @@
-kOS     => Performs ops in KSP and returns monitoring data
-kIPC    => Middleware between kOS and kRPC
-kRPC    => Allows context for advanced operations and calculations
-Python  => Actual non-horrible language with vast connection options
-Web API => Robust control and access
