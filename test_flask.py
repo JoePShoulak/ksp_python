@@ -1,5 +1,6 @@
 from flask import Flask, jsonify
 from Orbit import earth_orbit
+from test_krpc import launch_rocket
 
 app = Flask('KSP Interface app')
 
@@ -17,6 +18,7 @@ def get_orbit(arg: str):
 @app.route('/actions/<path:act>', methods=['POST'])
 def post_act(act: str):
     print(f"Someone just asked us to do {act}")
+    if act == "launch_rocket": launch_rocket()
     return f"Request to perform {act} has been sent"
 
 app.run()
