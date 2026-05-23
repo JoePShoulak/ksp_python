@@ -4,6 +4,7 @@ import time
 import sys
 
 # TODO: Clean all this up, move things into functions, etc
+# It's also not working that well
 
 def safe_connect(name):
   try:
@@ -173,6 +174,134 @@ def land_rocket():
   
   conn.close()
 
+import math
+
+G0 = 9.80665
+
+
+def estimate_staged_delta_v(vessel):
+    parts = list(vessel.parts.all)
+    engines = list(vessel.parts.engines)
+
+    highest_stage = max(
+        max(part.stage for part in parts),
+        max(part.decouple_stage for part in parts),
+    )
+
+    remaining_parts = set(parts)
+    total_delta_v = 0
+    stage_results = []
+
+    for stage in range(highest_stage, -1, -1):
+        stage_engines = [
+            engine
+            for engine in engines
+            if engine.part in remaining_parts
+            and engine.part.stage == stage
+        ]
+
+        if stage_engines:
+            wet_mass = sum(part.mass for part in remaining_parts)
+
+            burn_decouple_stages = {
+                engine.part.decouple_stage
+                for engine in stage_engines
+            }
+
+            burn_parts = [
+                part
+                for part in remaining_parts
+                if part.decouple_stage in burn_decouple_stages
+            ]
+
+            propellant_mass = sum(
+                part.mass - part.dry_mass
+                for part in burn_parts
+            )
+
+            dry_mass = wet_mass - propellant_mass
+
+            total_thrust = sum(engine.available_thrust for engine in stage_engines)
+
+            average_isp = sum(
+                engine.specific_impulse * engine.available_thrust
+                for engine in stage_engines
+            ) / total_thrust
+
+            stage_delta_v = average_isp * G0 * math.log(wet_mass / dry_mass)
+
+            total_delta_v += stage_delta_v
+
+            stage_results.append({
+                "stage": stage,
+                "delta_v": stage_delta_v,
+                "wet_mass": wet_mass,
+                "dry_mass": dry_mass,
+                "isp": average_isp,
+            })
+
+        dropped_parts = {
+            part
+            for part in remaining_parts
+            if part.decouple_stage == stage
+        }
+
+        remaining_parts -= dropped_parts
+
+    return total_delta_v, stage_results
+
 def test():
-  
-  return
+  conn, vessel = safe_connect("Land")
+
+  total_dv, stages = estimate_staged_delta_v(vessel)
+
+  if total_dv < 3000: # TODO: implement KSP DV Roadmap object
+    print("Rocket will not reach orbit. Performing sub-orbital flight.")
+    suborbital_flight(conn, vessel)
+  else:
+    # launch to orbit
+    pass
+
+def vessel_is_down(vessel):
+  return vessel.situation in (
+      vessel.situation.landed,
+      vessel.situation.splashed,
+  )
+
+
+def suborbital_flight(conn, vessel):
+    # Streams
+    altitude = conn.add_stream(getattr, vessel.flight(), 'mean_altitude')
+
+    # Pre-launch setup
+    vessel.control.sas = False
+    vessel.control.rcs = False
+    vessel.control.throttle = 1.0
+
+    # Countdown...
+    print('3...'); time.sleep(1)
+    print('2...'); time.sleep(1)
+    print('1...'); time.sleep(1)
+    print('Launch!')
+
+    # Activate the first stage
+    vessel.control.activate_next_stage()
+    vessel.auto_pilot.engage()
+    vessel.auto_pilot.target_pitch_and_heading(90, 90)
+
+    # Wait for good alt
+    while altitude() < 1000:
+      time.sleep(0.001)
+    
+    # Turn a bit
+    vessel.auto_pilot.target_pitch_and_heading(75, 90)
+
+    # Keep staging until we're at parachutes
+    while vessel.control.current_stage > 0:
+      if vessel.available_thrust < 0.1:
+        vessel.control.activate_next_stage()
+
+    while not vessel_is_down(vessel):
+      time.sleep(0.001)
+
+    print("Landed!")

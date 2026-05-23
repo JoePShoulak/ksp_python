@@ -43,8 +43,11 @@ class kOSProcessor:
     self.sock.sendall((line + "\r\n").encode("utf-8"))
 
   def run_script(self, script, *args):
-    self.send_line(f"RUNPATH(\"0:/boot/{script}.ks {" ".join(args)}\").")
+    self.send_line(f"RUNPATH(\"0:/maneuvers/{script}.ks {" ".join(args)}\").")
 
-# kos = kOSProcessor()
-# kos.connect()
-# kos.run_script("rocket")
+# TODO: Determine is a script has finished executing
+# We should be able to tell by checking to see if the vessel's kOS processor is using electricity
+# but we probably want to do something less ambiguous, like use tags on the processor
+
+# TODO: Determine which processor is which; it does not seem trivial to match up a processor
+# from the telnet selection menu with processor parts
