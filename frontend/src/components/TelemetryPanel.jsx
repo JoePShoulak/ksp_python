@@ -3,18 +3,24 @@ import Panel from "./Panel";
 import { getTelemetry } from "../api/kspApi";
 
 function formatNumber(value, digits = 1) {
-  if (typeof value !== "number") {
+  const number = Number(value);
+
+  if (!Number.isFinite(number)) {
     return "—";
   }
 
-  return value.toFixed(digits);
+  return number.toFixed(digits);
 }
 
-function TelemetryPanel() {
+function TelemetryPanel({ enabled, onToggle }) {
   const [telemetry, setTelemetry] = useState(null);
   const [error, setError] = useState(null);
 
   useEffect(() => {
+    if (!enabled) {
+      return;
+    }
+
     const intervalId = setInterval(() => {
       getTelemetry()
         .then(data => {
@@ -29,11 +35,23 @@ function TelemetryPanel() {
     return () => {
       clearInterval(intervalId);
     };
-  }, []);
+  }, [enabled]);
 
   return (
     <Panel title="Telemetry">
-      {error && <p>Error: {error}</p>}
+      <div className="telemetry-controls">
+        <p>
+          Polling is <strong>{enabled ? "enabled" : "disabled"}</strong>.
+        </p>
+
+        <button onClick={onToggle}>
+          {enabled ? "Disable Telemetry" : "Enable Telemetry"}
+        </button>
+      </div>
+
+      {!enabled && <p>Telemetry polling is disabled.</p>}
+
+      {enabled && error && <p>Error: {error}</p>}
 
       {!telemetry ? (
         <p>No telemetry yet.</p>

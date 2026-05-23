@@ -15,6 +15,7 @@ function App() {
   const [isLoading, setIsLoading] = useState(false);
   const [lastResponse, setLastResponse] = useState(null);
   const [log, setLog] = useState([]);
+  const [telemetryEnabled, setTelemetryEnabled] = useState(false);
 
   function addLog(message) {
     const timestamp = new Date().toLocaleTimeString();
@@ -63,6 +64,18 @@ function App() {
     } finally {
       setIsLoading(false);
     }
+  }
+
+  function toggleTelemetry() {
+    setTelemetryEnabled(previousValue => {
+      const nextValue = !previousValue;
+
+      addLog(
+        nextValue ? "Telemetry polling enabled" : "Telemetry polling disabled",
+      );
+
+      return nextValue;
+    });
   }
 
   useEffect(() => {
@@ -119,7 +132,7 @@ function App() {
         onRefresh={checkStatus}
       />
 
-      <TelemetryPanel />
+      <TelemetryPanel enabled={telemetryEnabled} onToggle={toggleTelemetry} />
 
       <ActionsPanel
         actions={ACTIONS}

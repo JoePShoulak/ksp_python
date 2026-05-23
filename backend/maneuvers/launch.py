@@ -295,8 +295,8 @@ def suborbital_landing():
     
     while vessel.control.current_stage > 0:
       vessel.control.activate_next_stage()
-      vessel.auto_pilot.reference_frame =  vessel.orbital_reference_frame
-      vessel.auto_pilot.target_direction = (0, -1, 0)
+    vessel.auto_pilot.reference_frame =  vessel.orbital_reference_frame
+    vessel.auto_pilot.target_direction = (0, -1, 0)
 
 def launch_to_orbit():
     # TODO: It'd be nice to not have the throttle up when there's no throttleable engines on the vessel
@@ -359,7 +359,7 @@ def launch_to_orbit():
 
     update_telemetry("Pitch over")
     vessel.auto_pilot.target_pitch_and_heading(75, 90)
-    time.sleep(3)
+    time.sleep(7)
     vessel.auto_pilot.reference_frame = vessel.surface_velocity_reference_frame
     vessel.auto_pilot.target_direction = (0, 1, 0)
     vessel.auto_pilot.target_roll = 0
@@ -373,9 +373,6 @@ def launch_to_orbit():
 
       # If advancing by a stage would likely give us more thrust...
       if vessel.available_thrust < 0.1 and stage_has_engine(vessel, next_stage):
-        vessel.control.activate_next_stage()
-      # If we don't have more engines, and we're now descending...
-      elif vertical_speed() < -50:
         vessel.control.activate_next_stage()
 
       time.sleep(0.1)
@@ -391,15 +388,15 @@ def launch_to_orbit():
     vessel.control.throttle = 1
     while periapsis() < 80000:
       update_telemetry("Circularizing")
+            # If advancing by a stage would likely give us more thrust...
       if vessel.available_thrust < 0.1:
-        update_telemetry("Orbit failed")
-        time.sleep(3)
-        return suborbital_landing()
+        if stage_has_engine(vessel, next_stage):
+          vessel.control.activate_next_stage()
+        else:
+          update_telemetry("Orbit failed")
+          time.sleep(3)
+          return suborbital_landing()
       time.sleep(0.1)
     vessel.control.throttle = 0
 
-    while not vessel_is_down(vessel):
-      update_telemetry("Descending")
-      time.sleep(0.1)
-
-    update_telemetry("Landed!")
+    update_telemetry("Orbit achieved!")
