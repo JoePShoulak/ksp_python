@@ -269,39 +269,85 @@ def vessel_is_down(vessel):
   )
 
 
-def suborbital_flight(conn, vessel):
-    # Streams
-    altitude = conn.add_stream(getattr, vessel.flight(), 'mean_altitude')
+import time
+from telemetry import telemetry
 
-    # Pre-launch setup
+def stage_has_engine(vessel, stage_number):
+    return any(
+        engine.part.stage == stage_number
+        for engine in vessel.parts.engines
+    )
+
+def suborbital_flight(conn, vessel):
+    flight = vessel.flight(vessel.orbit.body.reference_frame)
+
+    altitude = conn.add_stream(getattr, flight, "mean_altitude")
+    surface_altitude = conn.add_stream(getattr, flight, "surface_altitude")
+    vertical_speed = conn.add_stream(getattr, flight, "vertical_speed")
+    speed = conn.add_stream(getattr, flight, "speed")
+
+    def update_telemetry(status="nominal"):
+        telemetry.update(
+            status=status,
+            altitude=altitude(),
+            surface_altitude=surface_altitude(),
+            vertical_speed=vertical_speed(),
+            speed=speed(),
+            stage=vessel.control.current_stage,
+            throttle=vessel.control.throttle,
+            available_thrust=vessel.available_thrust,
+            situation=str(vessel.situation),
+        )
+
+    update_telemetry("pre_launch")
+
     vessel.control.sas = False
     vessel.control.rcs = False
     vessel.control.throttle = 1.0
 
-    # Countdown...
-    print('3...'); time.sleep(1)
-    print('2...'); time.sleep(1)
-    print('1...'); time.sleep(1)
-    print('Launch!')
+    print("3...")
+    update_telemetry("countdown_3")
+    time.sleep(1)
 
-    # Activate the first stage
+    print("2...")
+    update_telemetry("countdown_2")
+    time.sleep(1)
+
+    print("1...")
+    update_telemetry("countdown_1")
+    time.sleep(1)
+
+    print("Launch!")
+    update_telemetry("launch")
+
     vessel.control.activate_next_stage()
     vessel.auto_pilot.engage()
     vessel.auto_pilot.target_pitch_and_heading(90, 90)
 
-    # Wait for good alt
     while altitude() < 1000:
-      time.sleep(0.001)
-    
-    # Turn a bit
-    vessel.auto_pilot.target_pitch_and_heading(75, 90)
+        update_telemetry("ascending_vertical")
+        time.sleep(0.1)
 
-    # Keep staging until we're at parachutes
+    vessel.auto_pilot.target_pitch_and_heading(75, 90)
+    update_telemetry("pitching_over")
+
     while vessel.control.current_stage > 0:
-      if vessel.available_thrust < 0.1:
-        vessel.control.activate_next_stage()
+        update_telemetry("staging")
+        current_stage = vessel.control.current_stage
+        next_stage = current_stage - 1
+
+        # If advancing by a stage would likely give us more thrust...
+        if vessel.available_thrust < 0.1 and stage_has_engine(vessel, next_stage):
+            vessel.control.activate_next_stage()
+        # If we don't have more engines, and we're now descending...
+        elif vertical_speed() < -50:
+            vessel.control.activate_next_stage()
+
+        time.sleep(0.1)
 
     while not vessel_is_down(vessel):
-      time.sleep(0.001)
+        update_telemetry("descending")
+        time.sleep(0.1)
 
+    update_telemetry("landed")
     print("Landed!")

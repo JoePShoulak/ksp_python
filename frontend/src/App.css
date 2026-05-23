@@ -71,3 +71,13 @@ pre {
   color: #999;
   min-width: 90px;
 }
+
+.telemetry-grid {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.4rem 1rem;
+}
+
+.telemetry-grid div:nth-child(odd) {
+  color: #aaa;
+}

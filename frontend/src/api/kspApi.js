@@ -28,3 +28,7 @@ export async function runKspAction(actionId) {
     method: "POST",
   });
 }
+
+export async function getTelemetry() {
+  return fetchJson("/api/telemetry");
+}

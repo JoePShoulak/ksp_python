@@ -8,6 +8,7 @@ import StatusPanel from "./components/StatusPanel";
 import ActionsPanel from "./components/ActionsPanel";
 import ResponsePanel from "./components/ResponsePanel";
 import LogPanel from "./components/LogPanel";
+import TelemetryPanel from "./components/TelemetryPanel";
 
 function App() {
   const [apiStatus, setApiStatus] = useState("Unknown");
@@ -117,6 +118,8 @@ function App() {
         isLoading={isLoading}
         onRefresh={checkStatus}
       />
+
+      <TelemetryPanel />
 
       <ActionsPanel
         actions={ACTIONS}

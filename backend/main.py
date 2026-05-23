@@ -3,6 +3,7 @@ from flask import Flask, jsonify  # type: ignore
 from Orbit import earth_orbit
 from maneuvers.launch import launch_rocket, land_rocket, test
 from kOSProcessor import kOSProcessor
+from telemetry import telemetry
 
 
 app = Flask("KSP Interface app")
@@ -14,7 +15,7 @@ orbits = {
     "earth": earth_orbit,
 }
 
-
+# ROUTES
 @app.route("/api/status", methods=["GET"])
 def status():
     return jsonify({
@@ -72,6 +73,14 @@ def post_action(act: str):
     }), 404
 
 
+@app.route("/api/telemetry", methods=["GET"])
+def get_telemetry():
+    return jsonify({
+        "ok": True,
+        "telemetry": telemetry.get_snapshot(),
+    })
+
+# HANDLERS
 @app.errorhandler(404)
 def not_found(error):
     return jsonify({
@@ -87,7 +96,7 @@ def internal_error(error):
         "error": "Internal server error",
     }), 500
 
-
+# MAIN
 if __name__ == "__main__":
     app.run(
         host="127.0.0.1",
