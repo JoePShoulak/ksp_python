@@ -1,21 +1,32 @@
 from flask import Flask, jsonify  # type: ignore
 
-from Orbit import earth_orbit
-from maneuvers.launch import launch_rocket, land_rocket, test
-from kOSProcessor import kOSProcessor
+from misc.Orbit import earth_orbit
+from maneuvers.launch import launch_rocket, land_rocket, test, launch_to_orbit
+from misc.kOSProcessor import kOSProcessor
 from telemetry import telemetry
-
 
 app = Flask("KSP Interface app")
 
 kos = kOSProcessor()
-kos.connect()
 
 orbits = {
     "earth": earth_orbit,
 }
 
 # ROUTES
+# @app.route("/api/orbits/<path:arg>", methods=["GET"])
+# def get_orbit(arg: str):
+#     if arg not in orbits:
+#         return jsonify({
+#             "ok": False,
+#             "error": f"Unknown orbit: {arg}",
+#         }), 404
+
+#     return jsonify({
+#         "ok": True,
+#         "orbit": orbits[arg].dict(),
+#     })
+
 @app.route("/api/status", methods=["GET"])
 def status():
     return jsonify({
@@ -23,28 +34,14 @@ def status():
         "message": "KSP Interface API is running",
     })
 
-
-@app.route("/api/orbits/<path:arg>", methods=["GET"])
-def get_orbit(arg: str):
-    if arg not in orbits:
-        return jsonify({
-            "ok": False,
-            "error": f"Unknown orbit: {arg}",
-        }), 404
-
-    return jsonify({
-        "ok": True,
-        "orbit": orbits[arg].dict(),
-    })
-
-
 @app.route("/api/actions/<path:act>", methods=["POST"])
 def post_action(act: str):
     print(f"Someone just asked us to do {act}")
 
     if act == "launch_rocket":
-        kos.connect()
-        kos.run_script("launch_rocket")
+        # kos.connect()
+        # kos.run_script("launch_rocket")
+        launch_to_orbit()
         return jsonify({
             "ok": True,
             "action": act,

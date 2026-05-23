@@ -42,6 +42,15 @@ function TelemetryPanel() {
           <div>Status</div>
           <div>{telemetry.status ?? "—"}</div>
 
+          <div>Warning</div>
+          <div>{telemetry.warning ?? "—"}</div>
+
+          <div>Apoapsis</div>
+          <div>{formatNumber(telemetry.apoapsis)} m</div>
+
+          <div>Periapsis</div>
+          <div>{formatNumber(telemetry.periapsis)} m</div>
+
           <div>Altitude</div>
           <div>{formatNumber(telemetry.altitude)} m</div>
 

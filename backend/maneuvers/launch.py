@@ -1,7 +1,7 @@
 import krpc # type: ignore
 import math
 import time
-import sys
+from telemetry import telemetry
 
 # TODO: Clean all this up, move things into functions, etc
 # It's also not working that well
@@ -178,8 +178,8 @@ import math
 
 G0 = 9.80665
 
-
-def estimate_staged_delta_v(vessel):
+# TODO: Get this to work a little better at estimating atm/vac dVs
+def calc_total_dv(vessel):
     parts = list(vessel.parts.all)
     engines = list(vessel.parts.engines)
 
@@ -190,7 +190,6 @@ def estimate_staged_delta_v(vessel):
 
     remaining_parts = set(parts)
     total_delta_v = 0
-    stage_results = []
 
     for stage in range(highest_stage, -1, -1):
         stage_engines = [
@@ -221,24 +220,14 @@ def estimate_staged_delta_v(vessel):
 
             dry_mass = wet_mass - propellant_mass
 
-            total_thrust = sum(engine.available_thrust for engine in stage_engines)
-
-            average_isp = sum(
-                engine.specific_impulse * engine.available_thrust
+            total_isp = sum(
+                engine.specific_impulse
                 for engine in stage_engines
-            ) / total_thrust
+            )
 
-            stage_delta_v = average_isp * G0 * math.log(wet_mass / dry_mass)
+            stage_delta_v = total_isp * G0 * math.log(wet_mass / dry_mass)
 
             total_delta_v += stage_delta_v
-
-            stage_results.append({
-                "stage": stage,
-                "delta_v": stage_delta_v,
-                "wet_mass": wet_mass,
-                "dry_mass": dry_mass,
-                "isp": average_isp,
-            })
 
         dropped_parts = {
             part
@@ -248,19 +237,10 @@ def estimate_staged_delta_v(vessel):
 
         remaining_parts -= dropped_parts
 
-    return total_delta_v, stage_results
+    return total_delta_v
 
 def test():
-  conn, vessel = safe_connect("Land")
-
-  total_dv, stages = estimate_staged_delta_v(vessel)
-
-  if total_dv < 3000: # TODO: implement KSP DV Roadmap object
-    print("Rocket will not reach orbit. Performing sub-orbital flight.")
-    suborbital_flight(conn, vessel)
-  else:
-    # launch to orbit
-    pass
+  launch_to_orbit()
 
 def vessel_is_down(vessel):
   return vessel.situation in (
@@ -268,86 +248,158 @@ def vessel_is_down(vessel):
       vessel.situation.splashed,
   )
 
-
-import time
-from telemetry import telemetry
-
 def stage_has_engine(vessel, stage_number):
     return any(
         engine.part.stage == stage_number
         for engine in vessel.parts.engines
     )
 
-def suborbital_flight(conn, vessel):
+def estimate_full_throttle_burn_time(vessel):
+  propellant_requirements = {}
+
+  active_engines = [
+    engine
+    for engine in vessel.parts.engines
+    if engine.active and engine.available_thrust > 0
+  ]
+
+  for engine in active_engines:
+    for propellant in engine.propellants:
+      if propellant.current_requirement <= 0:
+        continue
+
+      if propellant.name not in propellant_requirements:
+        propellant_requirements[propellant.name] = {
+          "available": propellant.total_resource_available,
+          "required": 0,
+        }
+
+      propellant_requirements[propellant.name]["required"] += propellant.current_requirement
+
+  burn_times = [
+    data["available"] / data["required"]
+    for data in propellant_requirements.values()
+    if data["required"] > 0
+  ]
+
+  if not burn_times:
+    return 0
+
+  return min(burn_times)
+
+def suborbital_landing():
+    conn, vessel = safe_connect("Launch")
+    if not conn: return
+
+    # TODO: Implement telemetry here, probably needs a telemetry rework
+    
+    while vessel.control.current_stage > 0:
+      vessel.control.activate_next_stage()
+      vessel.auto_pilot.reference_frame =  vessel.orbital_reference_frame
+      vessel.auto_pilot.target_direction = (0, -1, 0)
+
+def launch_to_orbit():
+    # TODO: It'd be nice to not have the throttle up when there's no throttleable engines on the vessel
+
+    conn, vessel = safe_connect("Launch")
+    if not conn: return
+
     flight = vessel.flight(vessel.orbit.body.reference_frame)
 
     altitude = conn.add_stream(getattr, flight, "mean_altitude")
     surface_altitude = conn.add_stream(getattr, flight, "surface_altitude")
     vertical_speed = conn.add_stream(getattr, flight, "vertical_speed")
+    apoapsis = conn.add_stream(getattr, vessel.orbit, "apoapsis_altitude")
+    periapsis = conn.add_stream(getattr, vessel.orbit, "periapsis_altitude")
     speed = conn.add_stream(getattr, flight, "speed")
+    ut = conn.add_stream(getattr, conn.space_center, 'ut') # Seems to be "Universal Time" see add_node in use
+
+    total_dv = calc_total_dv(vessel)
+
+    warning = "None"
+    if   total_dv < 2500: warning = f"Critical dV {round(total_dv)}/3400 for LKO"
+    elif total_dv < 3000: warning = f"Very low dV {round(total_dv)}/3400 for LKO"
+    elif total_dv < 3400: warning = f"Low dV      {round(total_dv)}/3400 for LKO"
+    elif total_dv < 3900: warning = f"Marginal dV {round(total_dv)}/3400 for LKO"
 
     def update_telemetry(status="nominal"):
-        telemetry.update(
-            status=status,
-            altitude=altitude(),
-            surface_altitude=surface_altitude(),
-            vertical_speed=vertical_speed(),
-            speed=speed(),
-            stage=vessel.control.current_stage,
-            throttle=vessel.control.throttle,
-            available_thrust=vessel.available_thrust,
-            situation=str(vessel.situation),
-        )
+      telemetry.update(
+        status=status,
+        apoapsis=apoapsis(),
+        periapsis=periapsis(),
+        altitude=altitude(),
+        surface_altitude=surface_altitude(),
+        vertical_speed=vertical_speed(),
+        speed=speed(),
+        stage=vessel.control.current_stage,
+        throttle=vessel.control.throttle,
+        available_thrust=vessel.available_thrust,
+        situation=str(vessel.situation),
+        warning=warning
+      )
 
-    update_telemetry("pre_launch")
-
+    update_telemetry("Pre-flight check")
     vessel.control.sas = False
     vessel.control.rcs = False
     vessel.control.throttle = 1.0
+    time.sleep(3)
 
-    print("3...")
-    update_telemetry("countdown_3")
-    time.sleep(1)
-
-    print("2...")
-    update_telemetry("countdown_2")
-    time.sleep(1)
-
-    print("1...")
-    update_telemetry("countdown_1")
-    time.sleep(1)
-
-    print("Launch!")
-    update_telemetry("launch")
+    update_telemetry("Launching in 3..."); time.sleep(1)
+    update_telemetry("Launching in 2..."); time.sleep(1)
+    update_telemetry("Launching in 1..."); time.sleep(1)
 
     vessel.control.activate_next_stage()
     vessel.auto_pilot.engage()
     vessel.auto_pilot.target_pitch_and_heading(90, 90)
+    vessel.auto_pilot.target_roll = 0
 
     while altitude() < 1000:
-        update_telemetry("ascending_vertical")
-        time.sleep(0.1)
+      update_telemetry("Vertical Ascent")
+      time.sleep(0.1)
 
+    update_telemetry("Pitch over")
     vessel.auto_pilot.target_pitch_and_heading(75, 90)
-    update_telemetry("pitching_over")
+    time.sleep(3)
+    vessel.auto_pilot.reference_frame = vessel.surface_velocity_reference_frame
+    vessel.auto_pilot.target_direction = (0, 1, 0)
+    vessel.auto_pilot.target_roll = 0
 
-    while vessel.control.current_stage > 0:
-        update_telemetry("staging")
-        current_stage = vessel.control.current_stage
-        next_stage = current_stage - 1
+    # TODO: Procession issue between active ascencion and space coast
+    # Just needs SAS?
+    while apoapsis() < 80000:
+      update_telemetry("Staging to space")
+      current_stage = vessel.control.current_stage
+      next_stage = current_stage - 1
 
-        # If advancing by a stage would likely give us more thrust...
-        if vessel.available_thrust < 0.1 and stage_has_engine(vessel, next_stage):
-            vessel.control.activate_next_stage()
-        # If we don't have more engines, and we're now descending...
-        elif vertical_speed() < -50:
-            vessel.control.activate_next_stage()
+      # If advancing by a stage would likely give us more thrust...
+      if vessel.available_thrust < 0.1 and stage_has_engine(vessel, next_stage):
+        vessel.control.activate_next_stage()
+      # If we don't have more engines, and we're now descending...
+      elif vertical_speed() < -50:
+        vessel.control.activate_next_stage()
 
-        time.sleep(0.1)
+      time.sleep(0.1)
+    vessel.control.throttle = 0
+
+    # bt = estimate_full_throttle_burn_time(vessel)
+    vessel.auto_pilot.reference_frame =  vessel.orbital_reference_frame
+    vessel.auto_pilot.target_direction = (0, 1, 0)
+    while altitude() < 70000:
+      update_telemetry("Waiting to circularize")
+    conn.space_center.warp_to(ut() + vessel.orbit.time_to_apoapsis - 15)
+    # vessel.auto_pilot.wait()
+    vessel.control.throttle = 1
+    while periapsis() < 80000:
+      update_telemetry("Circularizing")
+      if vessel.available_thrust < 0.1:
+        update_telemetry("Orbit failed")
+        time.sleep(3)
+        return suborbital_landing()
+      time.sleep(0.1)
+    vessel.control.throttle = 0
 
     while not vessel_is_down(vessel):
-        update_telemetry("descending")
-        time.sleep(0.1)
+      update_telemetry("Descending")
+      time.sleep(0.1)
 
-    update_telemetry("landed")
-    print("Landed!")
+    update_telemetry("Landed!")
