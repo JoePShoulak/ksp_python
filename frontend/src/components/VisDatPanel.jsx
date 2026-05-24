@@ -25,12 +25,7 @@ function IdleTelemetryPanel() {
   );
 }
 
-function VisDatPanel({
-  telemetry,
-  hasVessel,
-  isCyclingCamera,
-  onCycleCamera,
-}) {
+function VisDatPanel({ telemetry, hasVessel }) {
   if (!hasVessel) {
     return <IdleTelemetryPanel />;
   }
@@ -50,11 +45,7 @@ function VisDatPanel({
 
         {hasCameras && (
           <VisualizationSubpanel title="Camera Feed" variant="camera">
-            <CameraStream
-              cameras={telemetry.cameras}
-              isCycling={isCyclingCamera}
-              onCycleCamera={onCycleCamera}
-            />
+            <CameraStream cameras={telemetry.cameras} />
           </VisualizationSubpanel>
         )}
 

@@ -5,7 +5,7 @@ import "./styles/telemetry.css";
 import "./styles/responsive.css";
 
 import { ACTIONS } from "./data/actions";
-import { cycleCamera, getTelemetry, runKspAction } from "./api/kspApi";
+import { getMissionStatus, getTelemetry, runKspAction } from "./api/kspApi";
 
 import ActionsPanel from "./components/ActionsPanel";
 import VisDatPanel from "./components/VisDatPanel";
@@ -16,8 +16,9 @@ function App() {
   const [connectionState, setConnectionState] = useState("connecting");
   const [activeActionId, setActiveActionId] = useState(null);
   const [lastActionMessage, setLastActionMessage] = useState("");
-  const [isCyclingCamera, setIsCyclingCamera] = useState(false);
   const hasVesselRef = useRef(hasVessel);
+  const activeActionIdRef = useRef(activeActionId);
+  const activeActionStartedAtRef = useRef(0);
   const isPollingRef = useRef(false);
 
   const isActionRunning = activeActionId !== null;
@@ -25,6 +26,10 @@ function App() {
   useEffect(() => {
     hasVesselRef.current = hasVessel;
   }, [hasVessel]);
+
+  useEffect(() => {
+    activeActionIdRef.current = activeActionId;
+  }, [activeActionId]);
 
   const pollTelemetry = useCallback(async (options = {}) => {
     try {
@@ -34,6 +39,10 @@ function App() {
       setTelemetry(hasActiveVessel ? (data.telemetry ?? null) : null);
       setHasVessel(hasActiveVessel);
       setConnectionState(hasActiveVessel ? "live" : "idle");
+
+      if (!hasActiveVessel) {
+        setActiveActionId(null);
+      }
     } catch (error) {
       if (error.name === "AbortError") {
         return;
@@ -45,8 +54,22 @@ function App() {
     }
   }, []);
 
+  const pollMissionStatus = useCallback(async () => {
+    try {
+      const data = await getMissionStatus();
+      const actionHasSettled = Date.now() - activeActionStartedAtRef.current > 750;
+
+      if (activeActionIdRef.current && actionHasSettled && !data.mission?.active) {
+        setActiveActionId(null);
+      }
+    } catch {
+      setActiveActionId(null);
+    }
+  }, []);
+
   async function handleRunAction(actionId) {
     setActiveActionId(actionId);
+    activeActionStartedAtRef.current = Date.now();
     setLastActionMessage("");
 
     try {
@@ -55,33 +78,19 @@ function App() {
       setLastActionMessage(data.message ?? "Action started");
       await pollTelemetry();
     } catch (error) {
-      setLastActionMessage(error.message);
+      await pollTelemetry();
+
+      if (!error.lowSignal) {
+        setLastActionMessage(error.message);
+      }
     } finally {
-      setActiveActionId(null);
+      await pollMissionStatus();
     }
-  }
 
-  async function handleCycleCamera() {
-    setIsCyclingCamera(true);
-    setLastActionMessage("");
+    const actionHasSettled = Date.now() - activeActionStartedAtRef.current > 750;
 
-    try {
-      const data = await cycleCamera();
-
-      setTelemetry(previousTelemetry => {
-        if (!previousTelemetry) {
-          return previousTelemetry;
-        }
-
-        return {
-          ...previousTelemetry,
-          cameras: data.cameras,
-        };
-      });
-    } catch (error) {
-      setLastActionMessage(error.message);
-    } finally {
-      setIsCyclingCamera(false);
+    if (actionHasSettled && !activeActionIdRef.current) {
+      setActiveActionId(null);
     }
   }
 
@@ -98,13 +107,14 @@ function App() {
         isPollingRef.current = true;
 
         try {
+          await pollMissionStatus();
           await pollTelemetry();
         } finally {
           isPollingRef.current = false;
         }
       }
 
-      const intervalMs = hasVesselRef.current ? 1000 : 2000;
+      const intervalMs = hasVesselRef.current ? 250 : 750;
       timeoutId = window.setTimeout(runPoll, intervalMs);
     }
 
@@ -117,7 +127,7 @@ function App() {
         clearTimeout(timeoutId);
       }
     };
-  }, [pollTelemetry]);
+  }, [pollMissionStatus, pollTelemetry]);
 
   return (
     <main className="app">
@@ -153,8 +163,6 @@ function App() {
         <VisDatPanel
           telemetry={telemetry}
           hasVessel={hasVessel}
-          isCyclingCamera={isCyclingCamera}
-          onCycleCamera={handleCycleCamera}
         />
       </section>
     </main>

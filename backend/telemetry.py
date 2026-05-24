@@ -26,6 +26,16 @@ CAMERA_EVENT_PATTERNS = (
 CAMERA_STREAM_URL = os.environ.get("KSP_CAMERA_STREAM_URL", "")
 CAMERA_STREAM_KIND = os.environ.get("KSP_CAMERA_STREAM_KIND", "image")
 
+
+def normalize_stream_url(url):
+  if not url:
+    return None
+
+  if url.startswith(("http://", "https://")):
+    return url
+
+  return f"http://{url}"
+
 def calc_total_dv(vessel):
   parts = list(vessel.parts.all)
   engines = list(vessel.parts.engines)
@@ -328,13 +338,15 @@ def get_camera_stream_url(camera):
     return None
 
   try:
-    return CAMERA_STREAM_URL.format(
+    stream_url = CAMERA_STREAM_URL.format(
       camera_id=camera["id"],
       camera_index=camera["index"],
       part_name=camera["part_name"],
     )
   except Exception:
-    return CAMERA_STREAM_URL
+    stream_url = CAMERA_STREAM_URL
+
+  return normalize_stream_url(stream_url)
 
 
 def get_camera_snapshot(vessel, selected_camera_id=None):
@@ -417,6 +429,30 @@ def trigger_camera_module(module):
         return True
 
   return False
+
+
+def is_flight_scene(conn):
+  current_scene = safe_value(lambda: conn.space_center.current_game_scene)
+
+  if current_scene is None:
+    return False
+
+  scene_name = str(current_scene).lower()
+
+  return scene_name.endswith(".flight") or scene_name == "flight"
+
+
+def vessel_is_readable(vessel):
+  try:
+    vessel_name = vessel.name
+    orbit = vessel.orbit
+    body = orbit.body
+    flight = vessel.flight(body.reference_frame)
+    _ = flight.mean_altitude
+  except Exception:
+    return False
+
+  return bool(vessel_name)
 
 
 def get_delta_v_warning(vessel):
@@ -579,6 +615,9 @@ class Telemetry:
     active_vessel = safe_value(lambda: self._conn.space_center.active_vessel)
 
     if not active_vessel:
+      return None
+
+    if not vessel_is_readable(active_vessel):
       return None
 
     active_name = safe_value(lambda: active_vessel.name)
