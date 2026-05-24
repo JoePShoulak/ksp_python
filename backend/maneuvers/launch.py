@@ -1,7 +1,7 @@
 import krpc # type: ignore
 import math
 import time
-from telemetry import telemetry
+from telemetry import TLM
 
 ########## Helpers
 
@@ -14,69 +14,6 @@ def safe_connect(name):
   
   vessel = conn.space_center.active_vessel
   return conn, vessel
-
-G0 = 9.80665
-
-# TODO: Get this to work a little better at estimating atm/vac dVs
-def calc_total_dv(vessel):
-    parts = list(vessel.parts.all)
-    engines = list(vessel.parts.engines)
-
-    highest_stage = max(
-        max(part.stage for part in parts),
-        max(part.decouple_stage for part in parts),
-    )
-
-    remaining_parts = set(parts)
-    total_delta_v = 0
-
-    for stage in range(highest_stage, -1, -1):
-        stage_engines = [
-            engine
-            for engine in engines
-            if engine.part in remaining_parts
-            and engine.part.stage == stage
-        ]
-
-        if stage_engines:
-            wet_mass = sum(part.mass for part in remaining_parts)
-
-            burn_decouple_stages = {
-                engine.part.decouple_stage
-                for engine in stage_engines
-            }
-
-            burn_parts = [
-                part
-                for part in remaining_parts
-                if part.decouple_stage in burn_decouple_stages
-            ]
-
-            propellant_mass = sum(
-                part.mass - part.dry_mass
-                for part in burn_parts
-            )
-
-            dry_mass = wet_mass - propellant_mass
-
-            total_isp = sum(
-                engine.specific_impulse
-                for engine in stage_engines
-            )
-
-            stage_delta_v = total_isp * G0 * math.log(wet_mass / dry_mass)
-
-            total_delta_v += stage_delta_v
-
-        dropped_parts = {
-            part
-            for part in remaining_parts
-            if part.decouple_stage == stage
-        }
-
-        remaining_parts -= dropped_parts
-
-    return total_delta_v
 
 def wait_one_hour():
   conn, _vessel = safe_connect("Launch")
@@ -132,6 +69,82 @@ def estimate_full_throttle_burn_time(vessel):
 
   return min(burn_times)
 
+########## Mini-Maneuvers
+def launch(conn, vessel):
+  TLM.update("Pre-flight check")
+  vessel.control.sas = False
+  vessel.control.rcs = False
+  vessel.control.throttle = 1.0
+  time.sleep(3)
+
+  TLM.update("Launching in 3..."); time.sleep(1)
+  TLM.update("Launching in 2..."); time.sleep(1)
+  TLM.update("Launching in 1..."); time.sleep(1)
+
+  vessel.control.activate_next_stage()
+  vessel.auto_pilot.engage()
+  vessel.auto_pilot.target_pitch_and_heading(90, 90)
+  vessel.auto_pilot.target_roll = 0
+
+  while TLM.read("altitude") < 1000:
+    TLM.update("Vertical Ascent")
+    time.sleep(0.1)
+
+def gravity_turn_to_orbit(conn, vessel):
+  TLM.update("Pitch over")
+  vessel.auto_pilot.target_pitch_and_heading(75, 90)
+  time.sleep(7)
+
+  vessel.auto_pilot.reference_frame = vessel.surface_velocity_reference_frame
+  vessel.auto_pilot.target_direction = (0, 1, 0)
+  vessel.auto_pilot.target_roll = 0
+
+  while TLM.read("apoapsis") < 80000:
+    TLM.update("Staging to space")
+
+    current_stage = vessel.control.current_stage
+    next_stage = current_stage - 1
+
+    if vessel.available_thrust < 0.1 and stage_has_engine(vessel, next_stage):
+      vessel.control.activate_next_stage()
+
+    time.sleep(0.1)
+
+  vessel.control.throttle = 0
+
+def circularize(conn, vessel):
+  vessel.auto_pilot.reference_frame = vessel.orbital_reference_frame
+  vessel.auto_pilot.target_direction = (0, 1, 0)
+
+  while TLM.read("altitude") < 70000:
+    TLM.update("Waiting to circularize")
+    time.sleep(0.1)
+
+  conn.space_center.warp_to(
+    TLM.read("ut") + vessel.orbit.time_to_apoapsis - 10
+  )
+
+  vessel.control.throttle = 1
+
+  while TLM.read("periapsis") < 80000:
+    TLM.update("Circularizing")
+
+    current_stage = vessel.control.current_stage
+    next_stage = current_stage - 1
+
+    if vessel.available_thrust < 0.1:
+      if stage_has_engine(vessel, next_stage):
+        vessel.control.activate_next_stage()
+      else:
+        TLM.update("Orbit failed")
+        vessel.control.throttle = 0
+        time.sleep(3)
+        return suborbital_landing()
+
+    time.sleep(0.1)
+
+  vessel.control.throttle = 0
+
 ########## Maneuvers
 # TODO: Refactor a lot of this code into subfunctions, clean it up, etc
 # TODO: Improving warping in general
@@ -147,151 +160,85 @@ def suborbital_landing():
     vessel.auto_pilot.target_direction = (0, -1, 0)
 
 def launch_to_orbit():
-    # TODO: It'd be nice to not have the throttle up when there's no throttleable engines on the vessel
+  conn, vessel = safe_connect("Launch")
+  if not conn:
+    return
 
-    conn, vessel = safe_connect("Launch")
-    if not conn: return
+  TLM.begin(conn, vessel)
 
-    flight = vessel.flight(vessel.orbit.body.reference_frame)
+  launch(conn, vessel)
+  gravity_turn_to_orbit(conn, vessel)
+  circularize(conn, vessel)
 
-    altitude = conn.add_stream(getattr, flight, "mean_altitude")
-    surface_altitude = conn.add_stream(getattr, flight, "surface_altitude")
-    vertical_speed = conn.add_stream(getattr, flight, "vertical_speed")
-    apoapsis = conn.add_stream(getattr, vessel.orbit, "apoapsis_altitude")
-    periapsis = conn.add_stream(getattr, vessel.orbit, "periapsis_altitude")
-    speed = conn.add_stream(getattr, flight, "speed")
-    ut = conn.add_stream(getattr, conn.space_center, 'ut') # Seems to be "Universal Time" see add_node in use
-
-    total_dv = calc_total_dv(vessel)
-
-    warning = "None"
-    if   total_dv < 2500: warning = f"Critical dV {round(total_dv)}/3400 for LKO"
-    elif total_dv < 3000: warning = f"Very low dV {round(total_dv)}/3400 for LKO"
-    elif total_dv < 3400: warning = f"Low dV      {round(total_dv)}/3400 for LKO"
-    elif total_dv < 3900: warning = f"Marginal dV {round(total_dv)}/3400 for LKO"
-
-    def update_telemetry(status="nominal"):
-      telemetry.update(
-        status=status,
-        apoapsis=apoapsis(),
-        periapsis=periapsis(),
-        altitude=altitude(),
-        surface_altitude=surface_altitude(),
-        vertical_speed=vertical_speed(),
-        speed=speed(),
-        stage=vessel.control.current_stage,
-        throttle=vessel.control.throttle,
-        available_thrust=vessel.available_thrust,
-        situation=str(vessel.situation),
-        warning=warning
-      )
-
-    update_telemetry("Pre-flight check")
-    vessel.control.sas = False
-    vessel.control.rcs = False
-    vessel.control.throttle = 1.0
-    time.sleep(3)
-
-    update_telemetry("Launching in 3..."); time.sleep(1)
-    update_telemetry("Launching in 2..."); time.sleep(1)
-    update_telemetry("Launching in 1..."); time.sleep(1)
-
-    vessel.control.activate_next_stage()
-    vessel.auto_pilot.engage()
-    vessel.auto_pilot.target_pitch_and_heading(90, 90)
-    vessel.auto_pilot.target_roll = 0
-
-    while altitude() < 1000:
-      update_telemetry("Vertical Ascent")
-      time.sleep(0.1)
-
-    update_telemetry("Pitch over")
-    vessel.auto_pilot.target_pitch_and_heading(75, 90)
-    time.sleep(7)
-    vessel.auto_pilot.reference_frame = vessel.surface_velocity_reference_frame
-    vessel.auto_pilot.target_direction = (0, 1, 0)
-    vessel.auto_pilot.target_roll = 0
-
-    # TODO: Procession issue between active ascencion and space coast
-    # Just needs SAS?
-    while apoapsis() < 80000:
-      update_telemetry("Staging to space")
-      current_stage = vessel.control.current_stage
-      next_stage = current_stage - 1
-
-      # If advancing by a stage would likely give us more thrust...
-      if vessel.available_thrust < 0.1 and stage_has_engine(vessel, next_stage):
-        vessel.control.activate_next_stage()
-
-      time.sleep(0.1)
-    vessel.control.throttle = 0
-
-    # TODO: Get the timing on a circ burn nailed down
-    # bt = estimate_full_throttle_burn_time(vessel)
-    vessel.auto_pilot.reference_frame =  vessel.orbital_reference_frame
-    vessel.auto_pilot.target_direction = (0, 1, 0)
-    while altitude() < 70000:
-      update_telemetry("Waiting to circularize")
-    conn.space_center.warp_to(ut() + vessel.orbit.time_to_apoapsis - 10)
-    # vessel.auto_pilot.wait()
-    vessel.control.throttle = 1
-    while periapsis() < 80000:
-      update_telemetry("Circularizing")
-      if vessel.available_thrust < 0.1:
-        # If advancing by a stage would likely give us more thrust...
-        if stage_has_engine(vessel, next_stage):
-          vessel.control.activate_next_stage()
-        else:
-          update_telemetry("Orbit failed")
-          time.sleep(3)
-          return suborbital_landing()
-      time.sleep(0.1)
-    vessel.control.throttle = 0
-
-    update_telemetry("Orbit achieved!")
-    conn.close()
+  TLM.update("Orbit achieved!")
+  conn.close()
 
 def land_rocket():
   conn, vessel = safe_connect("Land")
-  if not conn: return
+  if not conn:
+    return
 
-  # Streams
-  ut = conn.add_stream(getattr, conn.space_center, 'ut') # Seems to be "Universal Time" see add_node in use
-  time_to_apoapsis = conn.add_stream(getattr, vessel.orbit, 'time_to_apoapsis')
-  periapsis = conn.add_stream(getattr, vessel.orbit, 'periapsis_altitude')
-  time_to_periapsis = conn.add_stream(getattr, vessel.orbit, 'time_to_periapsis')
-  liq_fuel = conn.add_stream(vessel.resources.amount, 'LiquidFuel')
-  altitude = conn.add_stream(getattr, vessel.flight(), 'mean_altitude')
+  TLM.begin(conn, vessel)
 
-  # Break orbit
+  TLM.update("Preparing deorbit burn")
+
   vessel.auto_pilot.engage()
   vessel.auto_pilot.reference_frame = vessel.orbital_reference_frame
-  conn.space_center.warp_to(ut() + time_to_apoapsis())
+
+  conn.space_center.warp_to(
+    TLM.read("ut") + TLM.read("time_to_apoapsis")
+  )
+
+  TLM.update("Pointing retrograde")
   vessel.auto_pilot.target_direction = (0, -1, 0)
-  vessel.auto_pilot.wait() # TODO: Not waiting right
+  vessel.auto_pilot.wait()
+
+  TLM.update("Lowering periapsis")
   vessel.control.throttle = 0.1
-  while periapsis() > 55000:
-    time.sleep(0.001) # TODO: Doesn't work with pass, but should
+
+  while TLM.read("periapsis") > 55000:
+    TLM.update("Lowering periapsis")
+    time.sleep(0.1)
+
   vessel.control.throttle = 0.0
 
-  # Burn remaining fuel to slow down
-  while altitude() > 60000: 
-    time.sleep(0.001) # TODO: Doesn't work with pass, but should
-  # conn.space_center.warp_to(ut() + time_to_periapsis()) # TODO: Figure out how to warp to atmosphere
+  TLM.update("Coasting to atmosphere")
+
+  while TLM.read("altitude") > 60000:
+    TLM.update("Coasting to atmosphere")
+    time.sleep(0.1)
+
+  TLM.update("Burning remaining fuel")
   vessel.auto_pilot.target_direction = (0, -1, 0)
   vessel.control.throttle = 1.0
-  while liq_fuel() > 0.1:
+
+  while TLM.read("liquid_fuel") > 0.1:
+    TLM.update("Burning remaining fuel")
+
     if vessel.control.throttle < 1.0:
       vessel.control.throttle = 1.0
 
-  # Dump the engines
+    time.sleep(0.1)
+
+  vessel.control.throttle = 0.0
+
+  TLM.update("Dumping engines")
   vessel.control.activate_next_stage()
 
-  # Activate chutes, and land
-  while altitude() > 5000: 
-    time.sleep(0.001) # TODO: Doesn't work with pass, but should
+  TLM.update("Waiting to deploy parachutes")
+
+  while TLM.read("altitude") > 5000:
+    TLM.update("Waiting to deploy parachutes")
+    time.sleep(0.1)
+
+  TLM.update("Deploying parachutes")
   vessel.control.activate_next_stage()
-  
+
+  while not vessel_is_down(vessel):
+    TLM.update("Descending under parachutes")
+    time.sleep(0.1)
+
+  TLM.update("Landed")
   conn.close()
 
 def lko_tourism():
