@@ -366,6 +366,9 @@ class Telemetry:
 
     with self._lock:
       self._data.update(values)
+      
+  def is_initialized(self):
+    return self._initialized
 
   def get_snapshot(self):
     with self._lock:

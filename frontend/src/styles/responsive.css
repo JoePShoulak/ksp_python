@@ -1,0 +1,160 @@
+@media (min-width: 520px) {
+  .app {
+    padding-inline: 1rem;
+  }
+
+  .app-header {
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: flex-start;
+  }
+
+  .idle-panel {
+    flex-direction: row;
+    align-items: center;
+  }
+}
+
+@media (min-width: 960px) and (min-aspect-ratio: 6 / 5) {
+  .app {
+    width: min(calc(100vw - 2rem), 112rem);
+    padding: 1.25rem 0 2rem;
+  }
+
+  .app-header {
+    width: min(100%, 82rem);
+    margin: 0 auto 1.15rem;
+  }
+
+  .dashboard-grid {
+    grid-template-columns: clamp(14rem, 17vw, 19rem) minmax(0, 82rem);
+    justify-content: center;
+    gap: 1.1rem;
+  }
+
+  .dashboard-grid > .panel:first-child {
+    position: sticky;
+    top: 1rem;
+    align-self: start;
+    padding: 0.75rem;
+    background: linear-gradient(180deg, rgba(22, 29, 37, 0.96), rgba(12, 16, 21, 0.94));
+  }
+
+  .actions-panel {
+    grid-template-columns: 1fr;
+    gap: 0.55rem;
+  }
+
+  .status-details div,
+  .numerical-telemetry-row {
+    grid-template-columns: minmax(7rem, max-content) minmax(0, 1fr);
+    gap: 0.75rem;
+  }
+
+  .status-details strong,
+  .numerical-telemetry-row strong {
+    text-align: right;
+    white-space: nowrap;
+  }
+
+  .resource-row {
+    grid-template-columns: minmax(7rem, 8.75rem) minmax(8.5rem, 1fr);
+    gap: 0.55rem;
+  }
+
+  .visualization-grid {
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+    grid-auto-flow: dense;
+    gap: 0.9rem;
+  }
+
+  .visualization-subpanel {
+    grid-column: span 4;
+    padding: 0.8rem;
+  }
+
+  .visualization-subpanel:nth-child(1) {
+    grid-column: span 7;
+  }
+
+  .visualization-subpanel:nth-child(2) {
+    grid-column: span 5;
+  }
+
+  .visualization-subpanel canvas {
+    max-width: 30rem;
+  }
+
+  .wide-subpanel {
+    grid-column: auto;
+  }
+
+  .vessel-status {
+    grid-template-columns: minmax(17rem, 0.86fr) minmax(18rem, 1.14fr);
+    gap: 0.75rem;
+  }
+
+  .numerical-telemetry {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.6rem;
+  }
+
+  .action-button {
+    min-height: 2.65rem;
+    padding: 0.5rem 0.65rem;
+    font-size: 0.88rem;
+  }
+}
+
+@media (min-width: 1280px) and (min-aspect-ratio: 6 / 5) {
+  h1 {
+    font-size: 2.75rem;
+  }
+
+  .app {
+    width: min(calc(100vw - 2.5rem), 120rem);
+  }
+
+  .dashboard-grid {
+    grid-template-columns: clamp(15rem, 16vw, 20rem) minmax(0, 90rem);
+    gap: 1.2rem;
+  }
+
+  .app-header {
+    width: min(100%, 90rem);
+  }
+
+  .visualization-subpanel:nth-child(1) {
+    grid-column: span 6;
+  }
+
+  .visualization-subpanel:nth-child(2) {
+    grid-column: span 6;
+  }
+
+  .numerical-telemetry {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .visualization-grid {
+    gap: 1rem;
+  }
+}
+
+@media (min-width: 1520px) and (min-aspect-ratio: 6 / 5) {
+  .app {
+    width: min(calc(100vw - 3rem), 132rem);
+  }
+
+  .dashboard-grid {
+    grid-template-columns: clamp(16rem, 15vw, 21rem) minmax(0, 104rem);
+  }
+
+  .app-header {
+    width: min(100%, 104rem);
+  }
+
+  .visualization-subpanel canvas {
+    max-width: 34rem;
+  }
+}

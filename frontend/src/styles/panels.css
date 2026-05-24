@@ -1,0 +1,102 @@
+.panel {
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 1rem;
+  background: var(--bg-panel);
+  box-shadow: var(--shadow);
+}
+
+.panel > h2 {
+  margin-bottom: 0.9rem;
+  color: var(--text-soft);
+  font-size: 0.78rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.actions-panel {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  gap: 0.65rem;
+}
+
+.action-button {
+  min-height: 3rem;
+  text-align: left;
+  font-weight: 800;
+}
+
+.visualization-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.85rem;
+  width: 100%;
+  align-items: stretch;
+}
+
+.visualization-subpanel {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-width: 0;
+  min-height: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0.75rem;
+  background: #0b1015;
+}
+
+.visualization-subpanel h3 {
+  margin-bottom: 0.75rem;
+  color: var(--text-soft);
+  font-size: 0.82rem;
+  letter-spacing: 0.08em;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.visualization-subpanel-content {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.visualization-subpanel canvas {
+  display: block;
+  width: 100% !important;
+  max-width: 32rem;
+  height: auto !important;
+  aspect-ratio: 1 / 1;
+}
+
+.wide-subpanel {
+  grid-column: 1 / -1;
+}
+
+.idle-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1rem;
+  min-height: 10rem;
+  color: var(--text-muted);
+}
+
+.idle-orb {
+  width: 4.5rem;
+  height: 4.5rem;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle at 35% 35%,
+    #6fb6ff,
+    #0f5ea5 45%,
+    #001722 72%
+  );
+  box-shadow:
+    0 0 1.5rem rgba(67, 153, 232, 0.3),
+    inset -0.6rem -0.6rem 1rem rgba(0, 0, 0, 0.35);
+}

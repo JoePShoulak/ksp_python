@@ -1,0 +1,79 @@
+.app {
+  width: min(100%, 48rem);
+  margin: 0 auto;
+  padding: 1rem 0.75rem 2rem;
+}
+
+.app-header {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.85rem;
+  margin-bottom: 1rem;
+  padding: 0.25rem 0 0.7rem;
+}
+
+.eyebrow {
+  margin-bottom: 0.35rem;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.connection-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  max-width: 100%;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  padding: 0.45rem 0.7rem;
+  background: rgba(13, 17, 23, 0.88);
+  color: var(--text-soft);
+  font-size: 0.85rem;
+  font-weight: 800;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.connection-dot {
+  width: 0.55rem;
+  height: 0.55rem;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: #778092;
+}
+
+.connection-pill.live .connection-dot {
+  background: var(--accent);
+  box-shadow: 0 0 0.65rem rgba(125, 216, 125, 0.62);
+}
+
+.connection-pill.idle .connection-dot,
+.connection-pill.connecting .connection-dot {
+  background: var(--accent-amber);
+  box-shadow: 0 0 0.65rem rgba(231, 199, 90, 0.45);
+}
+
+.connection-pill.offline .connection-dot {
+  background: var(--danger);
+  box-shadow: 0 0 0.65rem rgba(255, 104, 104, 0.48);
+}
+
+.action-toast {
+  border: 1px solid #355273;
+  border-radius: var(--radius-md);
+  padding: 0.7rem 0.85rem;
+  margin-bottom: 1rem;
+  background: rgba(27, 43, 60, 0.72);
+  color: #d9e9ff;
+}
+
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1rem;
+  align-items: start;
+}

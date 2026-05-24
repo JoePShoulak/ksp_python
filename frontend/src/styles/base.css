@@ -1,0 +1,116 @@
+* {
+  box-sizing: border-box;
+}
+
+:root {
+  --font-sans: system-ui, "Segoe UI", Roboto, sans-serif;
+  --font-mono: ui-monospace, "SFMono-Regular", Consolas, monospace;
+
+  --bg: #080a0d;
+  --bg-raised: #10151b;
+  --bg-panel: rgba(15, 20, 26, 0.9);
+  --bg-panel-solid: #121820;
+  --bg-control: #18202a;
+  --bg-control-hover: #202b37;
+
+  --text: #e7edf4;
+  --text-muted: #94a2b5;
+  --text-soft: #b9c4d2;
+  --heading: #f8fbff;
+
+  --border: #263340;
+  --border-strong: #344557;
+  --accent: #7dd87d;
+  --accent-blue: #74a7ff;
+  --accent-amber: #e7c75a;
+  --danger: #ff6868;
+
+  --shadow: 0 1rem 2.5rem rgba(0, 0, 0, 0.28);
+  --radius-sm: 0.35rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.75rem;
+
+  color-scheme: dark;
+  font: 16px/1.45 var(--font-sans);
+  color: var(--text);
+  background: var(--bg);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  min-width: 320px;
+  min-height: 100svh;
+  margin: 0;
+  background:
+    linear-gradient(180deg, rgba(21, 31, 40, 0.76), rgba(8, 10, 13, 0) 22rem),
+    var(--bg);
+}
+
+button {
+  min-width: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  padding: 0.65rem 0.85rem;
+  background: var(--bg-control);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+
+button:hover {
+  background: var(--bg-control-hover);
+}
+
+button:focus-visible {
+  outline: 2px solid var(--accent-blue);
+  outline-offset: 2px;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+h1,
+h2,
+h3,
+h4,
+p {
+  margin: 0;
+}
+
+h1,
+h2,
+h3,
+h4 {
+  color: var(--heading);
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+h1 {
+  font-size: 2.35rem;
+  line-height: 1.06;
+}
+
+h2 {
+  font-size: 1rem;
+  line-height: 1.2;
+}
+
+h3 {
+  font-size: 0.98rem;
+  line-height: 1.25;
+}
+
+h4 {
+  font-size: 0.9rem;
+  line-height: 1.25;
+}
+
+#root {
+  min-height: 100svh;
+}

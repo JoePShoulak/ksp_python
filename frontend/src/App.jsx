@@ -1,151 +1,96 @@
 import { useEffect, useState } from "react";
-import "./App.css";
+import "./styles/app-shell.css";
+import "./styles/panels.css";
+import "./styles/telemetry.css";
+import "./styles/responsive.css";
 
 import { ACTIONS } from "./data/actions";
-import { getStatus, runKspAction } from "./api/kspApi";
+import { getTelemetry, runKspAction } from "./api/kspApi";
 
-import StatusPanel from "./components/StatusPanel";
 import ActionsPanel from "./components/ActionsPanel";
-import ResponsePanel from "./components/ResponsePanel";
-import LogPanel from "./components/LogPanel";
-import TelemetryPanel from "./components/TelemetryPanel";
 import VisDatPanel from "./components/VisDatPanel";
 
 function App() {
-  const [apiStatus, setApiStatus] = useState("Unknown");
-  const [isLoading, setIsLoading] = useState(false);
-  const [lastResponse, setLastResponse] = useState(null);
-  const [log, setLog] = useState([]);
-  const [telemetryEnabled, setTelemetryEnabled] = useState(false);
   const [telemetry, setTelemetry] = useState(null);
+  const [hasVessel, setHasVessel] = useState(false);
+  const [connectionState, setConnectionState] = useState("connecting");
+  const [activeActionId, setActiveActionId] = useState(null);
+  const [lastActionMessage, setLastActionMessage] = useState("");
 
-  function addLog(message) {
-    const timestamp = new Date().toLocaleTimeString();
+  const isActionRunning = activeActionId !== null;
 
-    setLog(previousLog => [
-      {
-        id: crypto.randomUUID(),
-        timestamp,
-        message,
-      },
-      ...previousLog,
-    ]);
-  }
-
-  async function checkStatus() {
+  async function pollTelemetry() {
     try {
-      const data = await getStatus();
+      const data = await getTelemetry();
 
-      setApiStatus(data.message);
-      addLog("Status check succeeded");
-    } catch (error) {
-      setApiStatus("Flask API is not reachable");
-      addLog(`Status check failed: ${error.message}`);
+      setTelemetry(data.telemetry ?? null);
+      setHasVessel(Boolean(data.has_vessel));
+      setConnectionState(data.has_vessel ? "live" : "idle");
+    } catch {
+      setTelemetry(null);
+      setHasVessel(false);
+      setConnectionState("offline");
     }
   }
 
   async function handleRunAction(actionId) {
-    setIsLoading(true);
-    setLastResponse(null);
+    setActiveActionId(actionId);
+    setLastActionMessage("");
 
     try {
-      addLog(`Sending action: ${actionId}`);
-
       const data = await runKspAction(actionId);
 
-      setLastResponse(data);
-      addLog(data.message);
+      setLastActionMessage(data.message ?? "Action started");
+      await pollTelemetry();
     } catch (error) {
-      const errorResponse = {
-        ok: false,
-        error: error.message,
-      };
-
-      setLastResponse(errorResponse);
-      addLog(`Error: ${error.message}`);
+      setLastActionMessage(error.message);
     } finally {
-      setIsLoading(false);
+      setActiveActionId(null);
     }
   }
 
-  function toggleTelemetry() {
-    setTelemetryEnabled(previousValue => {
-      const nextValue = !previousValue;
-
-      addLog(
-        nextValue ? "Telemetry polling enabled" : "Telemetry polling disabled",
-      );
-
-      return nextValue;
-    });
-  }
-
   useEffect(() => {
-    const controller = new AbortController();
+    const initialPollId = window.setTimeout(pollTelemetry, 0);
 
-    getStatus({
-      signal: controller.signal,
-    })
-      .then(data => {
-        setApiStatus(data.message);
-
-        const timestamp = new Date().toLocaleTimeString();
-
-        setLog(previousLog => [
-          {
-            id: crypto.randomUUID(),
-            timestamp,
-            message: "Status check succeeded",
-          },
-          ...previousLog,
-        ]);
-      })
-      .catch(error => {
-        if (error.name === "AbortError") {
-          return;
-        }
-
-        setApiStatus("Flask API is not reachable");
-
-        const timestamp = new Date().toLocaleTimeString();
-
-        setLog(previousLog => [
-          {
-            id: crypto.randomUUID(),
-            timestamp,
-            message: `Status check failed: ${error.message}`,
-          },
-          ...previousLog,
-        ]);
-      });
+    const intervalMs = hasVessel ? 250 : 1500;
+    const intervalId = setInterval(pollTelemetry, intervalMs);
 
     return () => {
-      controller.abort();
+      clearTimeout(initialPollId);
+      clearInterval(intervalId);
     };
-  }, []);
+  }, [hasVessel]);
 
   return (
     <main className="app">
-      <h1>KSP Control Panel</h1>
-      <StatusPanel
-        apiStatus={apiStatus}
-        isLoading={isLoading}
-        onRefresh={checkStatus}
-      />
-      <TelemetryPanel
-        enabled={telemetryEnabled}
-        onToggle={toggleTelemetry}
-        telemetry={telemetry}
-        setTelemetry={setTelemetry}
-      />
-      <VisDatPanel telemetry={telemetry} />
-      <ActionsPanel
-        actions={ACTIONS}
-        isLoading={isLoading}
-        onRunAction={handleRunAction}
-      />
-      <ResponsePanel lastResponse={lastResponse} />
-      <LogPanel log={log} />
+      <header className="app-header">
+        <div>
+          <p className="eyebrow">KSP Control Panel</p>
+          <h1>Mission Dashboard</h1>
+        </div>
+
+        <div className={`connection-pill ${connectionState}`}>
+          <span className="connection-dot" />
+          {connectionState === "live" && "Vessel linked"}
+          {connectionState === "idle" && "Waiting for vessel"}
+          {connectionState === "offline" && "Backend offline"}
+          {connectionState === "connecting" && "Connecting"}
+        </div>
+      </header>
+
+      {lastActionMessage && (
+        <section className="action-toast">{lastActionMessage}</section>
+      )}
+
+      <section className="dashboard-grid">
+        <ActionsPanel
+          actions={ACTIONS}
+          isLoading={isActionRunning}
+          onRunAction={handleRunAction}
+        />
+
+        <VisDatPanel telemetry={telemetry} hasVessel={hasVessel} />
+      </section>
     </main>
   );
 }
