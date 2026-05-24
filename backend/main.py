@@ -1,7 +1,7 @@
 from flask import Flask, jsonify  # type: ignore
 
 from misc.Orbit import earth_orbit
-from maneuvers.launch import launch_rocket, land_rocket, test, launch_to_orbit
+from maneuvers.launch import land_rocket, wait_one_hour, launch_to_orbit, lko_tourism
 from misc.kOSProcessor import kOSProcessor
 from telemetry import telemetry
 
@@ -48,6 +48,14 @@ def post_action(act: str):
             "message": "The rocket launch script has been started",
         })
 
+    if act == "wait_one_hour":
+        wait_one_hour()
+        return jsonify({
+            "ok": True,
+            "action": act,
+            "message": "The test has been run",
+        })
+
     if act == "land_rocket":
         land_rocket()
         return jsonify({
@@ -56,12 +64,12 @@ def post_action(act: str):
             "message": "The rocket has landed",
         })
 
-    if act == "test":
-        test()
+    if act == "lko_tourism":
+        lko_tourism()
         return jsonify({
             "ok": True,
             "action": act,
-            "message": "The test has been run",
+            "message": "The rocket has landed",
         })
 
     return jsonify({

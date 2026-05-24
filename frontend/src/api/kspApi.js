@@ -23,6 +23,7 @@ export async function getStatus(options = {}) {
   return fetchJson("/api/status", options);
 }
 
+// TODO: Teach this fetch to abort if the connection to the ship has been lost
 export async function runKspAction(actionId) {
   return fetchJson(`/api/actions/${actionId}`, {
     method: "POST",

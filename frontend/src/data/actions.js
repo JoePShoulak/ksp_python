@@ -4,11 +4,15 @@ export const ACTIONS = [
     label: "Launch Rocket",
   },
   {
+    id: "wait_one_hour",
+    label: "Wait One Hour",
+  },
+  {
     id: "land_rocket",
     label: "Land Rocket",
   },
   {
-    id: "test",
-    label: "Test",
+    id: "lko_tourism",
+    label: "LKO Tourism",
   },
 ];

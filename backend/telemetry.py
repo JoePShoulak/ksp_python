@@ -1,8 +1,6 @@
 # telemetry.py
 
 import threading
-import time
-
 
 class TelemetryStore:
     def __init__(self):
