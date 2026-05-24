@@ -8,17 +8,18 @@ import { ACTIONS } from "./data/actions";
 import { getMissionStatus, getTelemetry, runKspAction } from "./api/kspApi";
 
 import ActionsPanel from "./components/ActionsPanel";
-import VisDatPanel from "./components/VisDatPanel";
+import MissionTelemetryPanel from "./components/MissionTelemetryPanel";
 
 function App() {
   const [telemetry, setTelemetry] = useState(null);
   const [hasVessel, setHasVessel] = useState(false);
   const [connectionState, setConnectionState] = useState("connecting");
   const [activeActionId, setActiveActionId] = useState(null);
-  const [lastActionMessage, setLastActionMessage] = useState("");
+  const [visualResetKey, setVisualResetKey] = useState(0);
   const hasVesselRef = useRef(hasVessel);
   const activeActionIdRef = useRef(activeActionId);
   const activeActionStartedAtRef = useRef(0);
+  const visualResetSequenceRef = useRef(null);
   const isPollingRef = useRef(false);
 
   const isActionRunning = activeActionId !== null;
@@ -58,6 +59,15 @@ function App() {
     try {
       const data = await getMissionStatus();
       const actionHasSettled = Date.now() - activeActionStartedAtRef.current > 750;
+      const resetSequence = data.mission?.visual_reset_sequence;
+
+      if (
+        Number.isFinite(resetSequence) &&
+        visualResetSequenceRef.current !== resetSequence
+      ) {
+        visualResetSequenceRef.current = resetSequence;
+        setVisualResetKey(resetSequence);
+      }
 
       if (activeActionIdRef.current && actionHasSettled && !data.mission?.active) {
         setActiveActionId(null);
@@ -70,19 +80,12 @@ function App() {
   async function handleRunAction(actionId) {
     setActiveActionId(actionId);
     activeActionStartedAtRef.current = Date.now();
-    setLastActionMessage("");
 
     try {
-      const data = await runKspAction(actionId);
-
-      setLastActionMessage(data.message ?? "Action started");
+      await runKspAction(actionId);
       await pollTelemetry();
-    } catch (error) {
+    } catch {
       await pollTelemetry();
-
-      if (!error.lowSignal) {
-        setLastActionMessage(error.message);
-      }
     } finally {
       await pollMissionStatus();
     }
@@ -146,12 +149,6 @@ function App() {
         </div>
       </header>
 
-      {lastActionMessage && (
-        <section className="action-toast" aria-live="polite">
-          {lastActionMessage}
-        </section>
-      )}
-
       <section className="dashboard-grid">
         <ActionsPanel
           actions={ACTIONS}
@@ -160,9 +157,10 @@ function App() {
           onRunAction={handleRunAction}
         />
 
-        <VisDatPanel
+        <MissionTelemetryPanel
           telemetry={telemetry}
           hasVessel={hasVessel}
+          visualResetKey={visualResetKey}
         />
       </section>
     </main>

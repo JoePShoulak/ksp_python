@@ -1,40 +1,12 @@
 # telemetry.py
 
 import math
-import os
 import threading
 
-from config import load_env_file
-
-load_env_file()
+from cameras import get_camera_snapshot
+from krpc_utils import safe_value, vessel_is_readable
 
 G0 = 9.80665
-
-CAMERA_MODULE_PATTERNS = (
-  "camera",
-  "hullcam",
-  "mumechmodulehullcamera",
-  "externalcameraselector",
-)
-
-CAMERA_EVENT_PATTERNS = (
-  "activate",
-  "camera",
-  "view",
-)
-
-CAMERA_STREAM_URL = os.environ.get("KSP_CAMERA_STREAM_URL", "")
-CAMERA_STREAM_KIND = os.environ.get("KSP_CAMERA_STREAM_KIND", "image")
-
-
-def normalize_stream_url(url):
-  if not url:
-    return None
-
-  if url.startswith(("http://", "https://")):
-    return url
-
-  return f"http://{url}"
 
 def calc_total_dv(vessel):
   parts = list(vessel.parts.all)
@@ -108,13 +80,6 @@ def calc_total_dv(vessel):
     remaining_parts -= dropped_parts
 
   return total_delta_v
-
-
-def safe_value(getter, fallback=None):
-  try:
-    return getter()
-  except Exception:
-    return fallback
 
 
 def vector_to_json(vector):
@@ -300,161 +265,6 @@ def get_kerbin_system_snapshot(conn, vessel):
   }
 
 
-def text_matches_any(value, patterns):
-  text = str(value or "").lower()
-
-  return any(pattern in text for pattern in patterns)
-
-
-def get_part_label(part):
-  return (
-    safe_value(lambda: part.title)
-    or safe_value(lambda: part.name)
-    or "Camera"
-  )
-
-
-def module_looks_like_camera(module):
-  module_name = safe_value(lambda: module.name, "")
-  field_names = safe_value(lambda: list(module.fields), [])
-  event_names = safe_value(lambda: list(module.events), [])
-  action_names = safe_value(lambda: list(module.actions), [])
-
-  candidates = [
-    module_name,
-    *field_names,
-    *event_names,
-    *action_names,
-  ]
-
-  return any(
-    text_matches_any(candidate, CAMERA_MODULE_PATTERNS)
-    for candidate in candidates
-  )
-
-
-def get_camera_stream_url(camera):
-  if not CAMERA_STREAM_URL:
-    return None
-
-  try:
-    stream_url = CAMERA_STREAM_URL.format(
-      camera_id=camera["id"],
-      camera_index=camera["index"],
-      part_name=camera["part_name"],
-    )
-  except Exception:
-    stream_url = CAMERA_STREAM_URL
-
-  return normalize_stream_url(stream_url)
-
-
-def get_camera_snapshot(vessel, selected_camera_id=None):
-  cameras = []
-
-  for index, part in enumerate(safe_value(lambda: list(vessel.parts.all), [])):
-    modules = safe_value(lambda part=part: list(part.modules), [])
-    camera_modules = [
-      module
-      for module in modules
-      if module_looks_like_camera(module)
-    ]
-
-    if not camera_modules:
-      continue
-
-    part_name = safe_value(lambda part=part: part.name, f"camera-{index}")
-    part_label = get_part_label(part)
-    module_names = [
-      safe_value(lambda module=module: module.name, "")
-      for module in camera_modules
-    ]
-
-    cameras.append({
-      "id": f"{index}:{part_name}",
-      "index": len(cameras),
-      "part_name": part_name,
-      "label": part_label,
-      "modules": module_names,
-    })
-
-  selected_index = 0
-
-  if selected_camera_id:
-    for index, camera in enumerate(cameras):
-      if camera["id"] == selected_camera_id:
-        selected_index = index
-        break
-
-  selected_camera = cameras[selected_index] if cameras else None
-
-  if selected_camera:
-    selected_camera = {
-      **selected_camera,
-      "stream_url": get_camera_stream_url(selected_camera),
-      "stream_kind": CAMERA_STREAM_KIND,
-    }
-
-  return {
-    "available": len(cameras) > 0,
-    "count": len(cameras),
-    "selected_index": selected_index if cameras else None,
-    "selected": selected_camera,
-    "cameras": cameras,
-  }
-
-
-def trigger_camera_module(module):
-  event_names = safe_value(lambda: list(module.events), [])
-  action_names = safe_value(lambda: list(module.actions), [])
-
-  for event_name in event_names:
-    if text_matches_any(event_name, CAMERA_EVENT_PATTERNS):
-      did_trigger = safe_value(
-        lambda event_name=event_name: module.trigger_event(event_name),
-        False,
-      )
-
-      if did_trigger is not False:
-        return True
-
-  for action_name in action_names:
-    if text_matches_any(action_name, CAMERA_EVENT_PATTERNS):
-      did_trigger = safe_value(
-        lambda action_name=action_name: module.set_action(action_name, True),
-        False,
-      )
-
-      if did_trigger is not False:
-        return True
-
-  return False
-
-
-def is_flight_scene(conn):
-  current_scene = safe_value(lambda: conn.space_center.current_game_scene)
-
-  if current_scene is None:
-    return False
-
-  scene_name = str(current_scene).lower()
-
-  return scene_name.endswith(".flight") or scene_name == "flight"
-
-
-def vessel_is_readable(vessel):
-  try:
-    vessel_name = vessel.name
-    orbit = vessel.orbit
-    body = orbit.body
-    flight = vessel.flight(body.reference_frame)
-    _ = flight.mean_altitude
-  except Exception:
-    return False
-
-  return bool(vessel_name)
-
-
 def get_delta_v_warning(vessel):
   total_dv = safe_value(lambda: calc_total_dv(vessel), 0)
 
@@ -473,7 +283,7 @@ def get_delta_v_warning(vessel):
   return "None"
 
 
-def get_vessel_snapshot(conn, vessel, status="nominal", selected_camera_id=None):
+def get_vessel_snapshot(conn, vessel, status="nominal"):
   orbit = safe_value(lambda: vessel.orbit)
   body = safe_value(lambda: orbit.body)
   reference_frame = safe_value(lambda: body.reference_frame)
@@ -505,7 +315,7 @@ def get_vessel_snapshot(conn, vessel, status="nominal", selected_camera_id=None)
     "comms": get_comms_snapshot(vessel),
     "warp": get_warp_status(conn),
     "resources": get_resource_snapshot(vessel),
-    "cameras": get_camera_snapshot(vessel, selected_camera_id),
+    "cameras": get_camera_snapshot(vessel),
     "kerbin_system": get_kerbin_system_snapshot(conn, vessel),
   }
 
@@ -518,7 +328,6 @@ class Telemetry:
     self._conn = None
     self._vessel = None
     self._vessel_name = None
-    self._selected_camera_id = None
     self._warning = "None"
     self._initialized = False
 
@@ -582,10 +391,7 @@ class Telemetry:
       "comms": lambda: get_comms_snapshot(vessel),
       "warp": lambda: get_warp_status(conn),
       "resources": lambda: get_resource_snapshot(vessel),
-      "cameras": lambda: get_camera_snapshot(
-        vessel,
-        self._selected_camera_id,
-      ),
+      "cameras": lambda: get_camera_snapshot(vessel),
       "kerbin_system": lambda: get_kerbin_system_snapshot(conn, vessel),
     }
 
@@ -604,7 +410,6 @@ class Telemetry:
     self._conn = None
     self._vessel = None
     self._vessel_name = None
-    self._selected_camera_id = None
     self._warning = "None"
     self._initialized = False
 
@@ -666,47 +471,12 @@ class Telemetry:
       conn,
       vessel,
       status,
-      self._selected_camera_id,
     )
 
     with self._lock:
       self._data = snapshot
 
     return snapshot
-
-  def cycle_camera(self, vessel=None):
-    target_vessel = vessel or self._vessel
-
-    if not target_vessel:
-      return get_camera_snapshot(None)
-
-    camera_snapshot = get_camera_snapshot(
-      target_vessel,
-      self._selected_camera_id,
-    )
-
-    if not camera_snapshot["available"]:
-      self._selected_camera_id = None
-      return camera_snapshot
-
-    next_index = (camera_snapshot["selected_index"] + 1) % camera_snapshot["count"]
-    selected_camera = camera_snapshot["cameras"][next_index]
-    self._selected_camera_id = selected_camera["id"]
-
-    for part_index, part in enumerate(safe_value(lambda: list(target_vessel.parts.all), [])):
-      part_name = safe_value(lambda part=part: part.name, "")
-      camera_id = f"{part_index}:{part_name}"
-
-      if camera_id != self._selected_camera_id:
-        continue
-
-      for module in safe_value(lambda part=part: list(part.modules), []):
-        if module_looks_like_camera(module) and trigger_camera_module(module):
-          break
-
-      break
-
-    return get_camera_snapshot(target_vessel, self._selected_camera_id)
 
   def read(self, name):
     if not self._initialized:

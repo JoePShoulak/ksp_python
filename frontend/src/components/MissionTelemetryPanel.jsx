@@ -25,7 +25,7 @@ function IdleTelemetryPanel() {
   );
 }
 
-function VisDatPanel({ telemetry, hasVessel }) {
+function MissionTelemetryPanel({ telemetry, hasVessel, visualResetKey }) {
   if (!hasVessel) {
     return <IdleTelemetryPanel />;
   }
@@ -49,20 +49,26 @@ function VisDatPanel({ telemetry, hasVessel }) {
           </VisualizationSubpanel>
         )}
 
-        <VisualizationSubpanel title="Kerbin System">
-          <KerbinSystemMap telemetry={telemetry} />
+        <VisualizationSubpanel title="Ascent - Cartesian">
+          <AscentCartesian
+            key={`cartesian-${visualResetKey}`}
+            telemetry={telemetry}
+          />
         </VisualizationSubpanel>
 
         <VisualizationSubpanel title="Ascent - Polar">
-          <AscentPolar telemetry={telemetry} />
+          <AscentPolar key={`polar-${visualResetKey}`} telemetry={telemetry} />
         </VisualizationSubpanel>
 
-        <VisualizationSubpanel title="Ascent - Cartesian">
-          <AscentCartesian telemetry={telemetry} />
+        <VisualizationSubpanel title="Kerbin System">
+          <KerbinSystemMap
+            key={`kerbin-${visualResetKey}`}
+            telemetry={telemetry}
+          />
         </VisualizationSubpanel>
       </div>
     </Panel>
   );
 }
 
-export default VisDatPanel;
+export default MissionTelemetryPanel;

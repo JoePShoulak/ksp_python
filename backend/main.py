@@ -1,16 +1,18 @@
 import threading
-import traceback
 
 from flask import Flask, jsonify  # type: ignore
 
-from maneuvers.launch import (
+from krpc_utils import close_connection, safe_connect
+from mission_state import (
+  MissionAborted,
   abort_active_mission_if_stale,
   get_active_mission_status,
+  is_vessel_lost_error,
+)
+from maneuvers.launch import (
   land_rocket,
   launch_to_orbit,
   lko_tourism,
-  MissionAborted,
-  safe_connect,
   wait_one_hour,
 )
 from telemetry import TLM
@@ -21,25 +23,14 @@ ACTION_LOCK = threading.Lock()
 ACTION_THREAD = None
 
 
-def is_vessel_lost_error(error):
-  return "No such vessel" in str(error)
-
-
-def action_error_response(action, error):
-  print(f"!== Action {action} failed: {error} ==!")
-  traceback.print_exc()
-
-def run_action_thread(action, callback):
+def run_action_thread(callback):
   try:
     callback()
-  except MissionAborted as error:
-    print(f"!== Action {action} stopped: {error} ==!")
-  except ValueError as error:
-    if not is_vessel_lost_error(error):
-      action_error_response(action, error)
+  except MissionAborted:
+    pass
   except Exception as error:
-    if not is_vessel_lost_error(error):
-      action_error_response(action, error)
+    if is_vessel_lost_error(error):
+      pass
 
 
 def run_action(action, callback, message):
@@ -55,7 +46,7 @@ def run_action(action, callback, message):
 
     ACTION_THREAD = threading.Thread(
       target=run_action_thread,
-      args=(action, callback),
+      args=(callback,),
       daemon=True,
       name=f"ksp-{action}",
     )
@@ -64,6 +55,7 @@ def run_action(action, callback, message):
   return jsonify({
     "ok": True,
     "action": action,
+    "started": True,
     "message": message,
   }), 202
 
@@ -75,7 +67,7 @@ def status():
     has_vessel = bool(conn and vessel)
 
     if conn:
-      conn.close()
+      close_connection(conn, stop_warp_first=False)
 
   return jsonify({
     "ok": True,
@@ -97,7 +89,7 @@ def launch_rocket_route():
   return run_action(
     "launch_rocket",
     launch_to_orbit,
-    "The rocket launch script has been started",
+    "Launch started",
   )
 
 
@@ -106,7 +98,7 @@ def land_rocket_route():
   return run_action(
     "land_rocket",
     land_rocket,
-    "The rocket landing script has been started",
+    "Landing started",
   )
 
 
@@ -115,7 +107,7 @@ def wait_one_hour_route():
   return run_action(
     "wait_one_hour",
     wait_one_hour,
-    "The wait script has been started",
+    "Wait started",
   )
 
 
@@ -124,32 +116,8 @@ def lko_tourism_route():
   return run_action(
     "lko_tourism",
     lko_tourism,
-    "The LKO tourism script has been started",
+    "LKO tourism sequence started",
   )
-
-
-@app.route("/api/cameras/cycle", methods=["POST"])
-def cycle_camera_route():
-  with KRPC_QUERY_LOCK:
-    conn, vessel = safe_connect("Camera")
-    abort_active_mission_if_stale(vessel if conn else None)
-
-    if not conn or not vessel:
-      return jsonify({
-        "ok": False,
-        "error": "No active vessel available for camera cycling",
-      }), 409
-
-    try:
-      camera_snapshot = TLM.cycle_camera(vessel)
-    finally:
-      conn.close()
-
-  return jsonify({
-    "ok": True,
-    "has_vessel": True,
-    "cameras": camera_snapshot,
-  })
 
 
 @app.route("/api/telemetry", methods=["GET"])
@@ -168,7 +136,7 @@ def get_telemetry():
     try:
       snapshot = TLM.capture(conn, vessel)
     finally:
-      conn.close()
+      close_connection(conn, stop_warp_first=False)
 
   return jsonify({
     "ok": True,

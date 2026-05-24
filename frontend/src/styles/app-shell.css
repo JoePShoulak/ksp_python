@@ -62,15 +62,6 @@
   box-shadow: 0 0 0.65rem rgba(255, 104, 104, 0.48);
 }
 
-.action-toast {
-  border: 1px solid #355273;
-  border-radius: var(--radius-md);
-  padding: 0.7rem 0.85rem;
-  margin-bottom: 1rem;
-  background: rgba(27, 43, 60, 0.72);
-  color: #d9e9ff;
-}
-
 .dashboard-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
