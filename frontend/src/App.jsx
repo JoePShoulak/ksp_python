@@ -9,6 +9,7 @@ import ActionsPanel from "./components/ActionsPanel";
 import ResponsePanel from "./components/ResponsePanel";
 import LogPanel from "./components/LogPanel";
 import TelemetryPanel from "./components/TelemetryPanel";
+import VisDatPanel from "./components/VisDatPanel";
 
 function App() {
   const [apiStatus, setApiStatus] = useState("Unknown");
@@ -16,6 +17,7 @@ function App() {
   const [lastResponse, setLastResponse] = useState(null);
   const [log, setLog] = useState([]);
   const [telemetryEnabled, setTelemetryEnabled] = useState(false);
+  const [telemetry, setTelemetry] = useState(null);
 
   function addLog(message) {
     const timestamp = new Date().toLocaleTimeString();
@@ -125,23 +127,24 @@ function App() {
   return (
     <main className="app">
       <h1>KSP Control Panel</h1>
-
       <StatusPanel
         apiStatus={apiStatus}
         isLoading={isLoading}
         onRefresh={checkStatus}
       />
-
-      <TelemetryPanel enabled={telemetryEnabled} onToggle={toggleTelemetry} />
-
+      <TelemetryPanel
+        enabled={telemetryEnabled}
+        onToggle={toggleTelemetry}
+        telemetry={telemetry}
+        setTelemetry={setTelemetry}
+      />
+      <VisDatPanel telemetry={telemetry} />
       <ActionsPanel
         actions={ACTIONS}
         isLoading={isLoading}
         onRunAction={handleRunAction}
       />
-
       <ResponsePanel lastResponse={lastResponse} />
-
       <LogPanel log={log} />
     </main>
   );

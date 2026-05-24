@@ -100,6 +100,7 @@ class Telemetry:
     ut = conn.add_stream(getattr, conn.space_center, "ut")
     time_to_periapsis = conn.add_stream(getattr, vessel.orbit, "time_to_periapsis")
     liquid_fuel = conn.add_stream(vessel.resources.amount, "LiquidFuel")
+    longitude = conn.add_stream(getattr, flight, "longitude")
 
     total_dv = calc_total_dv(vessel)
 
@@ -123,6 +124,7 @@ class Telemetry:
     "surface_altitude": surface_altitude,
     "vertical_speed": vertical_speed,
     "speed": speed,
+    "longitude": longitude,
     "ut": ut,
     "time_to_apoapsis": time_to_apoapsis,
     "time_to_periapsis": time_to_periapsis,

@@ -12,8 +12,7 @@ function formatNumber(value, digits = 1) {
   return number.toFixed(digits);
 }
 
-function TelemetryPanel({ enabled, onToggle }) {
-  const [telemetry, setTelemetry] = useState(null);
+function TelemetryPanel({ enabled, onToggle, telemetry, setTelemetry }) {
   const [error, setError] = useState(null);
 
   useEffect(() => {
@@ -35,7 +34,7 @@ function TelemetryPanel({ enabled, onToggle }) {
     return () => {
       clearInterval(intervalId);
     };
-  }, [enabled]);
+  }, [enabled, setTelemetry]);
 
   return (
     <Panel title="Telemetry">
