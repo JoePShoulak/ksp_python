@@ -15,6 +15,14 @@
   }
 }
 
+@media (max-width: 959px), (max-aspect-ratio: 6 / 5) {
+  .subpanel-camera .camera-viewport {
+    /* TODO: revisit mobile JRTI sizing once we can compare phone screenshots. */
+    aspect-ratio: auto;
+    min-height: clamp(30rem, 78svh, 44rem);
+  }
+}
+
 @media (min-width: 960px) and (min-aspect-ratio: 6 / 5) {
   .app {
     width: min(calc(100vw - 2rem), 112rem);
@@ -32,10 +40,12 @@
     gap: 1.1rem;
   }
 
-  .dashboard-grid > .panel:first-child {
+  .dashboard-grid > .actions-column {
     position: sticky;
     top: 1rem;
-    align-self: start;
+  }
+
+  .dashboard-grid > .actions-column > .panel:first-child {
     padding: 0.75rem;
     background: linear-gradient(
       180deg,

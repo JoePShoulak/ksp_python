@@ -11,11 +11,35 @@ export function formatNumber(value, digits = 1) {
 }
 
 export function formatMeters(value, digits = 1) {
-  return `${formatNumber(value, digits)} m`;
+  const number = Number(value);
+
+  if (!Number.isFinite(number)) {
+    return EMPTY_VALUE;
+  }
+
+  if (Math.abs(number) >= 1000) {
+    return `${formatNumber(number / 1000, digits)} km`;
+  }
+
+  return `${formatNumber(number, digits)} m`;
 }
 
 export function formatMetersPerSecond(value, digits = 1) {
   return `${formatNumber(value, digits)} m/s`;
+}
+
+export function formatNewtons(value, digits = 1) {
+  const number = Number(value);
+
+  if (!Number.isFinite(number)) {
+    return EMPTY_VALUE;
+  }
+
+  if (Math.abs(number) >= 1000) {
+    return `${formatNumber(number / 1000, digits)} kN`;
+  }
+
+  return `${formatNumber(number, digits)} N`;
 }
 
 export function formatSeconds(value) {

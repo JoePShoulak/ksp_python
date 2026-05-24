@@ -2,6 +2,7 @@ import {
   EMPTY_VALUE,
   formatMeters,
   formatMetersPerSecond,
+  formatNewtons,
   formatNumber,
   formatPercent,
   formatSeconds,
@@ -72,13 +73,25 @@ function NumericalTelemetry({ telemetry }) {
 
       <TelemetryGroup title="Control">
         <TelemetryRow
+          label="Mission"
+          value={telemetry.status ?? EMPTY_VALUE}
+        />
+        <TelemetryRow
+          label="Warp"
+          value={telemetry.warp?.label ?? EMPTY_VALUE}
+        />
+        <TelemetryRow
           label="Throttle"
           value={formatPercent(telemetry.throttle)}
         />
         <TelemetryRow label="Stage" value={telemetry.stage ?? EMPTY_VALUE} />
         <TelemetryRow
           label="Available Thrust"
-          value={`${formatNumber(telemetry.available_thrust, 1)} N`}
+          value={formatNewtons(telemetry.available_thrust)}
+        />
+        <TelemetryRow
+          label="Delta-v"
+          value={formatMetersPerSecond(telemetry.delta_v)}
         />
         <TelemetryRow
           label="Longitude"

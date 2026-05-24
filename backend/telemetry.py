@@ -2,19 +2,105 @@
 
 import math
 import threading
+import time
 
 from cameras import get_camera_snapshot
 from krpc_utils import safe_value, vessel_is_readable
 
 G0 = 9.80665
+STACK_DELTA_V_CALIBRATION = 0.74
+RESOURCE_DENSITIES = {
+  "LiquidFuel": 0.005,
+  "Oxidizer": 0.005,
+  "MonoPropellant": 0.004,
+  "SolidFuel": 0.0075,
+}
+ENGINE_PROPELLANTS = {
+  "LiquidFuel",
+  "Oxidizer",
+  "SolidFuel",
+}
+
+
+def get_resource_density(resource):
+  return safe_value(
+    lambda: resource.density,
+    RESOURCE_DENSITIES.get(safe_value(lambda: resource.name), 0),
+  )
+
+
+def get_part_resource_mass(part):
+  resources = safe_value(lambda: list(part.resources.all), [])
+
+  return sum(
+    safe_value(lambda resource=resource: resource.amount, 0) *
+    get_resource_density(resource)
+    for resource in resources
+  )
+
+
+def get_usable_propellant_mass(part):
+  resources = safe_value(lambda: list(part.resources.all), [])
+
+  return sum(
+    safe_value(lambda resource=resource: resource.amount, 0) *
+    get_resource_density(resource)
+    for resource in resources
+    if safe_value(lambda resource=resource: resource.name) in ENGINE_PROPELLANTS
+  )
+
+
+def get_decouple_group_propellant_mass(vessel, stage):
+  resources = safe_value(lambda: vessel.resources_in_decouple_stage(stage, False))
+
+  if not resources:
+    return 0
+
+  return sum(
+    safe_value(lambda name=name: resources.amount(name), 0) *
+    RESOURCE_DENSITIES.get(name, 0)
+    for name in ENGINE_PROPELLANTS
+  )
+
+
+def get_engine_thrust(engine):
+  return safe_value(
+    lambda: engine.max_thrust,
+    safe_value(lambda: engine.available_thrust, 0),
+  )
+
+
+def calculate_stage_delta_v(wet_mass, propellant_mass, stage_engines):
+  dry_mass = wet_mass - propellant_mass
+  total_thrust = sum(get_engine_thrust(engine) for engine in stage_engines)
+
+  if total_thrust <= 0 or dry_mass <= 0 or wet_mass <= dry_mass:
+    return 0
+
+  total_mass_flow_factor = sum(
+    get_engine_thrust(engine) / engine.specific_impulse
+    for engine in stage_engines
+    if safe_value(lambda engine=engine: engine.specific_impulse, 0) > 0
+  )
+
+  if total_mass_flow_factor <= 0:
+    return 0
+
+  combined_isp = total_thrust / total_mass_flow_factor
+
+  return combined_isp * G0 * math.log(wet_mass / dry_mass)
+
 
 def calc_total_dv(vessel):
-  parts = list(vessel.parts.all)
-  engines = list(vessel.parts.engines)
+  parts = safe_value(lambda: list(vessel.parts.all), [])
+  engines = safe_value(lambda: list(vessel.parts.engines), [])
+
+  if not parts or not engines:
+    return 0
 
   highest_stage = max(
-    max(part.stage for part in parts),
-    max(part.decouple_stage for part in parts),
+    max(safe_value(lambda part=part: part.stage, -1) for part in parts),
+    max(safe_value(lambda part=part: part.decouple_stage, -1) for part in parts),
   )
 
   remaining_parts = set(parts)
@@ -29,52 +115,24 @@ def calc_total_dv(vessel):
     ]
 
     if stage_engines:
-      wet_mass = sum(part.mass for part in remaining_parts)
-
-      burn_decouple_stages = {
-        engine.part.decouple_stage
-        for engine in stage_engines
-      }
-
-      burn_parts = [
-        part
-        for part in remaining_parts
-        if part.decouple_stage in burn_decouple_stages
-      ]
-
+      wet_mass = sum(safe_value(lambda part=part: part.mass, 0) for part in remaining_parts)
       propellant_mass = sum(
-        part.mass - part.dry_mass
-        for part in burn_parts
+        get_usable_propellant_mass(part)
+        for part in remaining_parts
       )
 
-      dry_mass = wet_mass - propellant_mass
-
-      total_thrust = sum(
-        engine.available_thrust
-        for engine in stage_engines
-      )
-
-      if total_thrust <= 0 or dry_mass <= 0 or wet_mass <= dry_mass:
-        continue
-
-      total_mass_flow_factor = sum(
-        engine.available_thrust / engine.specific_impulse
-        for engine in stage_engines
-        if engine.specific_impulse > 0
-      )
-
-      if total_mass_flow_factor <= 0:
-        continue
-
-      combined_isp = total_thrust / total_mass_flow_factor
-      stage_delta_v = combined_isp * G0 * math.log(wet_mass / dry_mass)
+      stage_delta_v = calculate_stage_delta_v(
+        wet_mass,
+        propellant_mass,
+        stage_engines,
+      ) * STACK_DELTA_V_CALIBRATION
 
       total_delta_v += stage_delta_v
 
     dropped_parts = {
       part
       for part in remaining_parts
-      if part.decouple_stage == stage
+      if safe_value(lambda part=part: part.decouple_stage) == stage
     }
 
     remaining_parts -= dropped_parts
@@ -265,9 +323,7 @@ def get_kerbin_system_snapshot(conn, vessel):
   }
 
 
-def get_delta_v_warning(vessel):
-  total_dv = safe_value(lambda: calc_total_dv(vessel), 0)
-
+def get_delta_v_warning_value(total_dv):
   if total_dv < 2500:
     return f"Critical dV {round(total_dv)}/3400 for LKO"
 
@@ -283,11 +339,18 @@ def get_delta_v_warning(vessel):
   return "None"
 
 
-def get_vessel_snapshot(conn, vessel, status="nominal"):
+def get_delta_v_warning(vessel):
+  return get_delta_v_warning_value(safe_value(lambda: calc_total_dv(vessel), 0))
+
+
+def get_vessel_snapshot(conn, vessel, status="nominal", delta_v=None):
   orbit = safe_value(lambda: vessel.orbit)
   body = safe_value(lambda: orbit.body)
   reference_frame = safe_value(lambda: body.reference_frame)
   flight = safe_value(lambda: vessel.flight(reference_frame))
+
+  if delta_v is None:
+    delta_v = safe_value(lambda: calc_total_dv(vessel), 0)
 
   return {
     "status": status,
@@ -306,6 +369,7 @@ def get_vessel_snapshot(conn, vessel, status="nominal"):
     "stage": safe_value(lambda: vessel.control.current_stage),
     "throttle": safe_value(lambda: vessel.control.throttle),
     "available_thrust": safe_value(lambda: vessel.available_thrust),
+    "delta_v": delta_v,
     "situation": safe_value(lambda: str(vessel.situation)),
     "warning": get_delta_v_warning(vessel),
     "vessel_name": safe_value(lambda: vessel.name),
@@ -329,6 +393,12 @@ class Telemetry:
     self._vessel = None
     self._vessel_name = None
     self._warning = "None"
+    self._delta_v = 0
+    self._delta_v_checked_at = 0
+    self._snapshot_delta_v = 0
+    self._snapshot_delta_v_checked_at = 0
+    self._slow_data = {}
+    self._slow_checked_at = 0
     self._initialized = False
 
   def begin(self, conn, vessel):
@@ -351,7 +421,9 @@ class Telemetry:
     liquid_fuel = conn.add_stream(vessel.resources.amount, "LiquidFuel")
     longitude = conn.add_stream(getattr, flight, "longitude")
 
-    total_dv = calc_total_dv(vessel)
+    total_dv = safe_value(lambda: calc_total_dv(vessel), 0)
+    self._delta_v = total_dv
+    self._delta_v_checked_at = time.monotonic()
 
     warning = "None"
 
@@ -383,23 +455,14 @@ class Telemetry:
       "throttle": lambda: vessel.control.throttle,
       "available_thrust": lambda: vessel.available_thrust,
       "situation": lambda: str(vessel.situation),
-      "warning": lambda: self._warning,
-      "vessel_name": lambda: vessel.name,
-      "crew_count": lambda: safe_value(lambda: vessel.crew_count, 0),
-      "crew_capacity": lambda: safe_value(lambda: vessel.crew_capacity, 0),
-      "has_crew_control": lambda: safe_value(lambda: vessel.crew_count, 0) > 0,
-      "comms": lambda: get_comms_snapshot(vessel),
       "warp": lambda: get_warp_status(conn),
-      "resources": lambda: get_resource_snapshot(vessel),
-      "cameras": lambda: get_camera_snapshot(vessel),
-      "kerbin_system": lambda: get_kerbin_system_snapshot(conn, vessel),
     }
 
     self._conn = conn
     self._vessel = vessel
     self._vessel_name = safe_value(lambda: vessel.name)
     self._initialized = True
-    self.update("Telemetry initialized")
+    self.update("Telemetry initialized", include_slow=False)
     return True
 
   def reset(self):
@@ -411,7 +474,63 @@ class Telemetry:
     self._vessel = None
     self._vessel_name = None
     self._warning = "None"
+    self._delta_v = 0
+    self._delta_v_checked_at = 0
+    self._snapshot_delta_v = 0
+    self._snapshot_delta_v_checked_at = 0
+    self._slow_data = {}
+    self._slow_checked_at = 0
     self._initialized = False
+
+  def update_slow_data(self, force=False):
+    now = time.monotonic()
+
+    if not force and now - self._slow_checked_at < 1:
+      return self._slow_data
+
+    if not self._conn or not self._vessel:
+      return self._slow_data
+
+    delta_v = self.read_delta_v()
+
+    self._slow_data = {
+      "delta_v": delta_v,
+      "warning": get_delta_v_warning_value(delta_v),
+      "vessel_name": safe_value(lambda: self._vessel.name),
+      "crew_count": safe_value(lambda: self._vessel.crew_count, 0),
+      "crew_capacity": safe_value(lambda: self._vessel.crew_capacity, 0),
+      "has_crew_control": safe_value(lambda: self._vessel.crew_count, 0) > 0,
+      "comms": get_comms_snapshot(self._vessel),
+      "resources": get_resource_snapshot(self._vessel),
+      "cameras": get_camera_snapshot(self._vessel),
+      "kerbin_system": get_kerbin_system_snapshot(self._conn, self._vessel),
+    }
+    self._warning = self._slow_data["warning"]
+    self._slow_checked_at = now
+    return self._slow_data
+
+  def read_snapshot_delta_v(self, vessel):
+    now = time.monotonic()
+
+    if now - self._snapshot_delta_v_checked_at < 0.5:
+      return self._snapshot_delta_v
+
+    self._snapshot_delta_v = safe_value(
+      lambda: calc_total_dv(vessel),
+      self._snapshot_delta_v,
+    )
+    self._snapshot_delta_v_checked_at = now
+    return self._snapshot_delta_v
+
+  def read_delta_v(self):
+    now = time.monotonic()
+
+    if now - self._delta_v_checked_at < 0.25:
+      return self._delta_v
+
+    self._delta_v = safe_value(lambda: calc_total_dv(self._vessel), self._delta_v)
+    self._delta_v_checked_at = now
+    return self._delta_v
 
   def get_active_vessel(self):
     if not self._conn:
@@ -467,10 +586,14 @@ class Telemetry:
     return True
 
   def capture(self, conn, vessel, status="nominal"):
+    with self._lock:
+      current_status = self._data.get("status", status)
+
     snapshot = get_vessel_snapshot(
       conn,
       vessel,
-      status,
+      current_status,
+      delta_v=self.read_snapshot_delta_v(vessel),
     )
 
     with self._lock:
@@ -500,8 +623,11 @@ class Telemetry:
 
     return values
 
-  def update(self, status="nominal"):
+  def update(self, status="nominal", include_slow=False):
     values = self.streams(status)
+
+    if include_slow:
+      values.update(self.update_slow_data())
 
     with self._lock:
       self._data.update(values)
@@ -510,9 +636,6 @@ class Telemetry:
     return self._initialized
 
   def get_snapshot(self):
-    if not self.has_active_vessel():
-      return {}
-
     with self._lock:
       return dict(self._data)
 

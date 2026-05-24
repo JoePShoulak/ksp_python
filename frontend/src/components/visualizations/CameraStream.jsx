@@ -1,6 +1,6 @@
 function CameraStream({ cameras }) {
   const selectedCamera = cameras?.selected;
-  const streamUrl = selectedCamera?.stream_url;
+  const streamUrl = getReachableStreamUrl(selectedCamera?.stream_url);
   const streamKind = selectedCamera?.stream_kind ?? "image";
 
   return (
@@ -26,6 +26,24 @@ function CameraStream({ cameras }) {
       </div>
     </div>
   );
+}
+
+function getReachableStreamUrl(streamUrl) {
+  if (!streamUrl || typeof window === "undefined") {
+    return streamUrl;
+  }
+
+  try {
+    const url = new URL(streamUrl, window.location.href);
+
+    if (["localhost", "127.0.0.1", "0.0.0.0"].includes(url.hostname)) {
+      url.hostname = window.location.hostname;
+    }
+
+    return url.toString();
+  } catch {
+    return streamUrl;
+  }
 }
 
 export default CameraStream;

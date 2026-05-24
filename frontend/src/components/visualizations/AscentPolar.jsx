@@ -10,6 +10,7 @@ const MAX_ALTITUDE_DRAW_RADIUS_RATIO = 0.94;
 
 const TRAIL_DOT_SIZE = 2.5;
 const SHIP_DOT_SIZE = 10;
+const MAX_TRAIL_INTERPOLATION_STEPS = 36;
 
 const ORBIT_DOT_COUNT = 220;
 const ORBIT_DOT_SIZE = 2;
@@ -25,6 +26,7 @@ function sketch(p5) {
 
   let trailLayer;
   let hasTelemetryConnected = false;
+  let previousTrailPoint = null;
 
   function createTrailLayer() {
     trailLayer = p5.createFramebuffer({
@@ -39,6 +41,7 @@ function sketch(p5) {
     trailLayer.begin();
     p5.clear();
     trailLayer.end();
+    previousTrailPoint = null;
   }
 
   function withTopLeftCoordinates(drawFn) {
@@ -229,16 +232,35 @@ function sketch(p5) {
     createTrailLayer();
   };
 
-  function updateTrailLayer(x, y, throttle) {
+  function updateTrailLayer(x, y, throttle, warpFactor) {
     trailLayer.begin();
 
     withTopLeftCoordinates(() => {
       p5.fill(getThrottleColor(throttle));
       p5.noStroke();
-      p5.circle(x, y, TRAIL_DOT_SIZE);
+
+      const currentPoint = { x, y };
+      const previousPoint = previousTrailPoint ?? currentPoint;
+      const distance = p5.dist(previousPoint.x, previousPoint.y, x, y);
+      const warpBoost = Math.max(1, Number(warpFactor) || 1);
+      const stepCount = Math.min(
+        MAX_TRAIL_INTERPOLATION_STEPS,
+        Math.max(1, Math.ceil(distance / 8) * warpBoost),
+      );
+
+      for (let index = 1; index <= stepCount; index += 1) {
+        const amount = index / stepCount;
+
+        p5.circle(
+          p5.lerp(previousPoint.x, x, amount),
+          p5.lerp(previousPoint.y, y, amount),
+          TRAIL_DOT_SIZE,
+        );
+      }
     });
 
     trailLayer.end();
+    previousTrailPoint = { x, y };
   }
 
   function drawTrailLayer() {
@@ -368,6 +390,7 @@ function sketch(p5) {
     const periapsis = getFiniteNumber(telemetry.periapsis);
     const apoapsis = getFiniteNumber(telemetry.apoapsis);
     const throttle = getFiniteNumber(telemetry.throttle, -1);
+    const warpFactor = getFiniteNumber(telemetry.warp?.factor_index, 1);
 
     if (throttle > -1) {
       hasTelemetryConnected = true;
@@ -392,7 +415,7 @@ function sketch(p5) {
       });
     });
 
-    updateTrailLayer(shipPosition.x, shipPosition.y, throttle);
+    updateTrailLayer(shipPosition.x, shipPosition.y, throttle, warpFactor);
     drawTrailLayer();
 
     withTopLeftCoordinates(() => {

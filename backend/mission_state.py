@@ -14,10 +14,30 @@ ACTIVE_MISSION = None
 VISUAL_RESET_SEQUENCE = 0
 MISSION_WATCHDOG_INTERVAL = 0.5
 MET_ROLLBACK_TOLERANCE = 0.25
+MISSION_EVENTS = []
+MISSION_EVENT_LIMIT = 80
 
 
 class MissionAborted(RuntimeError):
   pass
+
+
+def record_mission_event(event, phase=None, **details):
+  entry = {
+    "time": round(time.time(), 3),
+    "event": event,
+    "phase": phase,
+    "details": details,
+  }
+
+  with ACTIVE_MISSION_LOCK:
+    MISSION_EVENTS.append(entry)
+    del MISSION_EVENTS[:-MISSION_EVENT_LIMIT]
+
+
+def get_mission_events():
+  with ACTIVE_MISSION_LOCK:
+    return list(MISSION_EVENTS)
 
 
 def is_vessel_lost_error(error):
@@ -35,6 +55,7 @@ def mission_aborted_message(phase):
 
 
 def close_mission_connection(conn):
+  record_mission_event("close_connection")
   close_connection(conn)
   TLM.reset()
   unregister_mission_connection(conn)
@@ -78,6 +99,13 @@ def register_mission_connection(conn, vessel, phase):
   with ACTIVE_MISSION_LOCK:
     ACTIVE_MISSION = mission
 
+  record_mission_event(
+    "register_connection",
+    phase,
+    vessel_id=mission["vessel_id"],
+    met=mission["last_met"],
+  )
+
   watchdog = threading.Thread(
     target=watch_active_mission,
     args=(conn,),
@@ -89,10 +117,15 @@ def register_mission_connection(conn, vessel, phase):
 
 def unregister_mission_connection(conn):
   global ACTIVE_MISSION
+  phase = None
 
   with ACTIVE_MISSION_LOCK:
     if ACTIVE_MISSION and ACTIVE_MISSION["conn"] is conn:
+      phase = ACTIVE_MISSION["phase"]
       ACTIVE_MISSION = None
+
+  if phase:
+    record_mission_event("unregister_connection", phase)
 
 
 def get_registered_mission():
@@ -127,6 +160,7 @@ def abort_active_mission(reason="Mission stopped"):
   if not mission:
     return False
 
+  record_mission_event("abort", mission["phase"], reason=reason)
   force_close_mission_connection(mission["conn"])
   increment_visual_reset_sequence()
   return True
@@ -228,14 +262,14 @@ def watch_active_mission(conn):
 
 
 def get_active_mission_status():
-  if not validate_active_mission():
+  mission = get_registered_mission()
+
+  if not mission:
     return {
       "active": False,
       "phase": None,
       "visual_reset_sequence": get_visual_reset_sequence(),
     }
-
-  mission = get_registered_mission()
 
   return {
     "active": True,

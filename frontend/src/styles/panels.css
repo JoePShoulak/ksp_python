@@ -17,11 +17,30 @@
   text-transform: uppercase;
 }
 
+.panel-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.panel-title-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
 /* Mission controls */
 
 .actions-panel {
   display: grid;
   gap: 0.8rem;
+}
+
+.actions-column {
+  display: grid;
+  gap: 0.85rem;
+  align-self: start;
 }
 
 .action-group {
@@ -51,12 +70,32 @@
   color: #ecfff0;
 }
 
+.action-button.is-running:disabled {
+  cursor: wait;
+  opacity: 1;
+}
+
 .action-state {
   flex: 0 0 auto;
   color: #aef2b6;
   font-size: 0.68rem;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+}
+
+.abort-button {
+  width: 100%;
+  min-height: 3.4rem;
+  border-color: rgba(255, 104, 104, 0.7);
+  background: rgba(73, 22, 27, 0.86);
+  color: #ffe8e8;
+  font-weight: 900;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.abort-button:hover {
+  background: rgba(105, 30, 36, 0.95);
 }
 
 /* Telemetry panels */
@@ -104,6 +143,8 @@
   max-width: 32rem;
   height: auto !important;
   aspect-ratio: 1 / 1;
+  pointer-events: none;
+  touch-action: pan-y pinch-zoom;
 }
 
 .subpanel-primary,

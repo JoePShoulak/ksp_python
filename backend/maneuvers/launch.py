@@ -8,6 +8,7 @@ from mission_state import (
   close_mission_connection,
   is_vessel_lost_error,
   mission_aborted_message,
+  record_mission_event,
   register_mission_connection,
 )
 from telemetry import TLM
@@ -17,16 +18,111 @@ from telemetry import TLM
 LAUNCH_VERTICAL_ASCENT_ALTITUDE = 1000
 LAUNCH_TARGET_APOAPSIS = 80000
 CIRCULARIZATION_ATMOSPHERE_ALTITUDE = 70000
-CIRCULARIZATION_TARGET_PERIAPSIS = 77500
+CIRCULARIZATION_TOURISM_PERIAPSIS = 75000
+CIRCULARIZATION_LEAD_TIME = 10
+CIRCULARIZATION_ALIGNMENT_BUFFER = 35
+CIRCULARIZATION_TARGET_PERIAPSIS = 75500
+CIRCULARIZATION_FUEL_RESERVE_DV = 50
+CIRCULARIZATION_TARGET_APOAPSIS = 82000
+CIRCULARIZATION_SOFT_APOAPSIS_LIMIT = 85000
+CIRCULARIZATION_HARD_APOAPSIS_LIMIT = 95000
+CIRCULARIZATION_ABORT_APOAPSIS_LIMIT = 125000
 LANDING_ATMOSPHERE_ALTITUDE = 70000
 LANDING_DEORBIT_PERIAPSIS = 55000
 PARACHUTE_DEPLOY_ALTITUDE = 5000
+DESCENT_PHYSICS_WARP_FACTOR = 3
+ASCENT_PHYSICS_WARP_FACTOR = 3
+RAILS_WARP_FACTOR = 7
+AUTOPILOT_ALIGNMENT_ERROR = 2
+AUTOPILOT_ALIGNMENT_TIMEOUT = 10
+CIRCULARIZATION_BURN_INTERVAL = 0.002
 
 def get_current_warp_factor(conn):
   return max(
     conn.space_center.rails_warp_factor,
     conn.space_center.physics_warp_factor,
   )
+
+
+def set_physics_warp(conn, warp_factor):
+  try:
+    if conn.space_center.rails_warp_factor > 0:
+      conn.space_center.rails_warp_factor = 0
+
+    if conn.space_center.physics_warp_factor != warp_factor:
+      conn.space_center.physics_warp_factor = warp_factor
+  except Exception:
+    pass
+
+
+def set_rails_warp(conn, warp_factor):
+  try:
+    if conn.space_center.physics_warp_factor > 0:
+      conn.space_center.physics_warp_factor = 0
+
+    if conn.space_center.rails_warp_factor != warp_factor:
+      conn.space_center.rails_warp_factor = warp_factor
+  except Exception:
+    pass
+
+
+def wait_for_autopilot_alignment(vessel, guard, status, max_wait=AUTOPILOT_ALIGNMENT_TIMEOUT):
+  started_at = time.monotonic()
+
+  while time.monotonic() - started_at < max_wait:
+    guard.check()
+    TLM.update(status)
+
+    try:
+      if vessel.auto_pilot.error <= AUTOPILOT_ALIGNMENT_ERROR:
+        return True
+    except Exception:
+      return False
+
+    time.sleep(0.1)
+
+  return False
+
+
+def read_autopilot_error(vessel):
+  try:
+    return vessel.auto_pilot.error
+  except Exception:
+    return None
+
+
+def manual_physics_warp_until(
+  conn,
+  status,
+  stop_condition,
+  warp_factor=DESCENT_PHYSICS_WARP_FACTOR,
+  update_interval=0.1,
+  abort_condition=None,
+  guard=None,
+):
+  if abort_condition is None:
+    abort_condition = lambda: False
+
+  try:
+    while not stop_condition() and not abort_condition():
+      if guard:
+        guard.check()
+
+      TLM.update(status)
+
+      set_physics_warp(conn, warp_factor)
+
+      time.sleep(update_interval)
+
+  finally:
+    stop_warp(conn)
+
+
+def maintain_physics_warp(conn, warp_factor=DESCENT_PHYSICS_WARP_FACTOR):
+  if warp_factor <= 0:
+    return
+
+  set_physics_warp(conn, warp_factor)
 
 
 def manual_rails_warp_until(
@@ -37,9 +133,14 @@ def manual_rails_warp_until(
   update_interval=0.1,
   abort_condition=None,
   guard=None,
+  allow_physics_fallback=False,
+  physics_fallback_after=1.0,
 ):
   max_warp = conn.space_center.maximum_rails_warp_factor
   selected_warp = min(warp_factor, max_warp)
+  fallback_pending_since = None
+  use_physics_fallback = False
+  fallback_reported = False
 
   if abort_condition is None:
     abort_condition = lambda: False
@@ -51,11 +152,27 @@ def manual_rails_warp_until(
 
       TLM.update(status)
 
-      if selected_warp > 0 and get_current_warp_factor(conn) <= 0:
-        try:
-          conn.space_center.rails_warp_factor = selected_warp
-        except Exception:
-          pass
+      if use_physics_fallback:
+        set_physics_warp(conn, DESCENT_PHYSICS_WARP_FACTOR)
+      else:
+        set_rails_warp(conn, selected_warp)
+
+        if allow_physics_fallback and get_current_warp_factor(conn) <= 1:
+          if fallback_pending_since is None:
+            fallback_pending_since = time.monotonic()
+          elif time.monotonic() - fallback_pending_since >= physics_fallback_after:
+            use_physics_fallback = True
+            if not fallback_reported:
+              record_mission_event(
+                "rails_warp_fallback_to_physics",
+                None,
+                status=status,
+                target_warp=selected_warp,
+              )
+              fallback_reported = True
+            set_physics_warp(conn, DESCENT_PHYSICS_WARP_FACTOR)
+        else:
+          fallback_pending_since = None
 
       time.sleep(update_interval)
 
@@ -63,34 +180,209 @@ def manual_rails_warp_until(
     stop_warp(conn)
 
 
+def coast_to_ut(conn, status, target_ut, warp_factor=RAILS_WARP_FACTOR, guard=None):
+  target_ut = max(target_ut, TLM.read("ut"))
+
+  if target_ut <= TLM.read("ut") + 0.5:
+    return
+
+  manual_rails_warp_until(
+    conn,
+    status,
+    lambda: TLM.read("ut") >= target_ut,
+    warp_factor=warp_factor,
+    guard=guard,
+    allow_physics_fallback=True,
+  )
+
+
+def warp_to_ut(conn, status, target_ut, warp_factor=RAILS_WARP_FACTOR, guard=None):
+  if guard:
+    guard.check(force=True)
+
+  selected_warp = min(warp_factor, conn.space_center.maximum_rails_warp_factor)
+  target_ut = max(target_ut, TLM.read("ut"))
+
+  if target_ut <= TLM.read("ut") + 0.5:
+    return
+
+  TLM.update(status)
+
+  try:
+    try:
+      conn.space_center.warp_to(
+        target_ut,
+        max_rails_warp_factor=selected_warp,
+        max_physics_warp_factor=0,
+      )
+    except TypeError:
+      conn.space_center.warp_to(target_ut, selected_warp, 0)
+  finally:
+    stop_warp(conn)
+
+  if guard:
+    guard.check(force=True)
+
+  TLM.update(status)
+
+
+def rails_warp_toward_periapsis(conn, status, guard, lead_time=45):
+  while TLM.read("time_to_periapsis") > lead_time:
+    guard.check()
+    coast_time = min(TLM.read("time_to_periapsis") - lead_time, 300)
+    target_ut = TLM.read("ut") + max(1, coast_time)
+    coast_to_ut(conn, status, target_ut, guard=guard)
+
+
+def rails_warp_to_atmosphere(conn, status, guard, update_interval=0.1):
+  try:
+    while TLM.read("altitude") > LANDING_ATMOSPHERE_ALTITUDE:
+      guard.check()
+      TLM.update(status)
+      set_rails_warp(conn, RAILS_WARP_FACTOR)
+      time.sleep(update_interval)
+  finally:
+    stop_warp(conn)
+
+
+def set_circularization_throttle(vessel):
+  periapsis = TLM.read("periapsis")
+  apoapsis = TLM.read("apoapsis")
+
+  if apoapsis >= CIRCULARIZATION_ABORT_APOAPSIS_LIMIT:
+    vessel.control.throttle = 0
+    return
+
+  if (
+    apoapsis >= CIRCULARIZATION_HARD_APOAPSIS_LIMIT and
+    periapsis >= CIRCULARIZATION_TARGET_PERIAPSIS
+  ):
+    vessel.control.throttle = 0
+    return
+
+  if periapsis >= CIRCULARIZATION_TARGET_PERIAPSIS:
+    vessel.control.throttle = 0
+    return
+
+  if (
+    apoapsis >= CIRCULARIZATION_SOFT_APOAPSIS_LIMIT and
+    periapsis >= CIRCULARIZATION_TOURISM_PERIAPSIS
+  ):
+    vessel.control.throttle = 0.05
+    return
+
+  if apoapsis >= CIRCULARIZATION_HARD_APOAPSIS_LIMIT:
+    vessel.control.throttle = 0.05
+    return
+
+  if apoapsis >= CIRCULARIZATION_SOFT_APOAPSIS_LIMIT:
+    vessel.control.throttle = 0.15
+    return
+
+  if periapsis >= 70000:
+    vessel.control.throttle = 0.08
+    return
+
+  if periapsis >= 50000:
+    vessel.control.throttle = 0.25
+    return
+
+  vessel.control.throttle = 1
+
+
+def estimate_circularization_delta_v(vessel):
+  try:
+    body = vessel.orbit.body
+    mu = body.gravitational_parameter
+    body_radius = body.equatorial_radius
+    apoapsis_radius = body_radius + max(TLM.read("apoapsis"), CIRCULARIZATION_TARGET_APOAPSIS)
+    periapsis_radius = body_radius + CIRCULARIZATION_TARGET_PERIAPSIS
+    target_semi_major_axis = (apoapsis_radius + periapsis_radius) / 2
+    target_speed = math.sqrt(mu * ((2 / apoapsis_radius) - (1 / target_semi_major_axis)))
+    current_speed = vessel.orbit.speed
+    return max(0, target_speed - current_speed)
+  except Exception:
+    return 0
+
+
+def estimate_circularization_lead_time(vessel):
+  try:
+    acceleration = vessel.available_thrust / max(vessel.mass, 1)
+  except Exception:
+    acceleration = 0
+
+  if acceleration <= 0:
+    return CIRCULARIZATION_LEAD_TIME
+
+  burn_time = estimate_circularization_delta_v(vessel) / acceleration
+  return min(55, max(CIRCULARIZATION_LEAD_TIME, (burn_time / 2) + 4))
+
+
+def configure_suborbital_landing(conn, vessel, guard):
+  TLM.update("Preparing suborbital landing")
+  stop_warp(conn)
+  vessel.control.throttle = 0
+
+  while vessel.control.current_stage > 0:
+    guard.check()
+    TLM.update("Dumping remaining stages")
+    vessel.control.activate_next_stage()
+    time.sleep(0.1)
+
+  guard.check(force=True)
+  vessel.auto_pilot.engage()
+  vessel.auto_pilot.reference_frame = vessel.orbital_reference_frame
+  vessel.auto_pilot.target_direction = (0, -1, 0)
+  TLM.update("Suborbital landing configured")
+
+
 def wait_one_hour():
+  record_mission_event("wait_enter", "Wait")
   conn, vessel = safe_connect("Wait")
   if not conn:
+    record_mission_event("wait_no_connection", "Wait")
     raise MissionAborted("Wait stopped because no active vessel is available")
 
+  record_mission_event("wait_connected", "Wait")
   register_mission_connection(conn, vessel, "Wait")
   guard = MissionGuard(conn, vessel, "Wait")
 
   try:
+    record_mission_event("wait_guard_check_start", "Wait")
     guard.check(force=True)
+    record_mission_event("wait_tlm_begin_start", "Wait")
     TLM.begin(conn, vessel)
+    record_mission_event("wait_tlm_begin_done", "Wait")
+
+    if TLM.read("periapsis") < CIRCULARIZATION_TOURISM_PERIAPSIS:
+      record_mission_event(
+        "wait_unstable_orbit",
+        "Wait",
+        periapsis=TLM.read("periapsis"),
+        minimum_periapsis=CIRCULARIZATION_TOURISM_PERIAPSIS,
+      )
+      raise MissionAborted("Wait stopped because the vessel is not in a tourism orbit")
 
     target_ut = TLM.read("ut") + 60 * 60
+    record_mission_event("wait_warp_start", "Wait", target_ut=target_ut)
 
     manual_rails_warp_until(
       conn,
       "Warping for one hour",
       lambda: TLM.read("ut") >= target_ut,
-      warp_factor=5,
+      warp_factor=RAILS_WARP_FACTOR,
       guard=guard,
     )
 
+    record_mission_event("wait_warp_done", "Wait")
     TLM.update("One hour elapsed")
   except Exception as error:
+    record_mission_event("wait_error", "Wait", error=str(error))
     if is_vessel_lost_error(error):
       raise MissionAborted(mission_aborted_message("Wait")) from error
     raise
   finally:
+    record_mission_event("wait_close", "Wait")
     close_mission_connection(conn)
 
 
@@ -99,6 +391,10 @@ def vessel_is_down(vessel):
     vessel.situation.landed,
     vessel.situation.splashed,
   )
+
+
+def has_usable_thrust(vessel):
+  return TLM.read("liquid_fuel") > 0.1 and vessel.available_thrust > 0.1
 
 
 def stage_has_engine(vessel, stage_number):
@@ -140,6 +436,92 @@ def estimate_full_throttle_burn_time(vessel):
     return 0
 
   return min(burn_times)
+
+
+def burn_remaining_fuel_for_descent(conn, vessel, guard):
+  if not has_usable_thrust(vessel):
+    return
+
+  TLM.update("Burning remaining fuel")
+  vessel.auto_pilot.target_direction = (0, -1, 0)
+  vessel.control.throttle = 1.0
+
+  while has_usable_thrust(vessel):
+    guard.check()
+    maintain_physics_warp(conn)
+    TLM.update("Burning remaining fuel")
+
+    if vessel.control.throttle < 1.0:
+      vessel.control.throttle = 1.0
+
+    time.sleep(0.1)
+
+  guard.check(force=True)
+  vessel.control.throttle = 0.0
+
+
+def warp_physics_through_atmosphere(conn, vessel, guard, parachutes_deployed):
+  TLM.update("Aerobraking")
+  maintain_physics_warp(conn)
+
+  while not vessel_is_down(vessel):
+    guard.check()
+    maintain_physics_warp(conn)
+
+    if TLM.read("altitude") <= PARACHUTE_DEPLOY_ALTITUDE and not parachutes_deployed:
+      TLM.update("Deploying parachutes")
+      stop_warp(conn)
+      vessel.control.activate_next_stage()
+      parachutes_deployed = True
+
+    if parachutes_deployed:
+      TLM.update("Descending under parachutes")
+    else:
+      TLM.update("Aerobraking")
+
+    if (
+      TLM.read("altitude") > LANDING_ATMOSPHERE_ALTITUDE and
+      TLM.read("vertical_speed") > 0
+    ):
+      stop_warp(conn)
+      return parachutes_deployed
+
+    time.sleep(0.1)
+
+  return parachutes_deployed
+
+
+def warp_through_aerobraking(conn, vessel, guard):
+  engines_dropped = False
+  parachutes_deployed = False
+
+  while not vessel_is_down(vessel):
+    guard.check()
+
+    if TLM.read("altitude") > LANDING_ATMOSPHERE_ALTITUDE:
+      rails_warp_to_atmosphere(conn, "Rails warping to atmosphere", guard)
+
+    if vessel_is_down(vessel):
+      break
+
+    TLM.update("Entering atmosphere")
+    maintain_physics_warp(conn)
+
+    if not engines_dropped:
+      burn_remaining_fuel_for_descent(conn, vessel, guard)
+      TLM.update("Dumping engines")
+      vessel.control.activate_next_stage()
+      engines_dropped = True
+
+    parachutes_deployed = warp_physics_through_atmosphere(
+      conn,
+      vessel,
+      guard,
+      parachutes_deployed,
+    )
+
+  TLM.update("Landed")
+  stop_warp(conn)
 
 ########## Mini-Maneuvers
 
@@ -196,46 +578,144 @@ def gravity_turn_to_orbit(conn, vessel, guard):
 
 def circularize(conn, vessel, guard):
   guard.check(force=True)
-  while TLM.read("altitude") < CIRCULARIZATION_ATMOSPHERE_ALTITUDE:
-    guard.check()
-    TLM.update("Waiting to circularize")
-    time.sleep(0.01)
 
-  guard.check(force=True)
-  vessel.auto_pilot.target_direction = (0, 1, 0)
-  vessel.auto_pilot.disengage()
-
-  circularization_start_ut = (
-    TLM.read("ut") +
-    vessel.orbit.time_to_apoapsis -
-    10
+  manual_physics_warp_until(
+    conn,
+    "Physics warping to atmosphere edge",
+    lambda: (
+      TLM.read("altitude") >= CIRCULARIZATION_ATMOSPHERE_ALTITUDE or
+      TLM.read("time_to_apoapsis") <=
+      CIRCULARIZATION_LEAD_TIME + CIRCULARIZATION_ALIGNMENT_BUFFER
+    ),
+    warp_factor=ASCENT_PHYSICS_WARP_FACTOR,
+    guard=guard,
   )
 
-  # manual_rails_warp_until(
-  #   conn,
-  #   "Warping to circularization",
-  #   lambda: TLM.read("ut") >= circularization_start_ut,
-  #   warp_factor=2,
-  # )
+  guard.check(force=True)
+  TLM.update("Aiming prograde")
+  vessel.auto_pilot.engage()
+  vessel.auto_pilot.reference_frame = vessel.orbital_reference_frame
+  vessel.auto_pilot.target_direction = (0, 1, 0)
+  vessel.auto_pilot.target_roll = 0
+
+  circularization_lead_time = estimate_circularization_lead_time(vessel)
+  record_mission_event(
+    "circularization_plan",
+    "Launch",
+    lead_time=circularization_lead_time,
+    estimated_delta_v=estimate_circularization_delta_v(vessel),
+    apoapsis=TLM.read("apoapsis"),
+    periapsis=TLM.read("periapsis"),
+    alignment_buffer=CIRCULARIZATION_ALIGNMENT_BUFFER,
+  )
+
+  circularization_start_ut = TLM.read("ut") + max(
+    0,
+    vessel.orbit.time_to_apoapsis - circularization_lead_time,
+  )
+  circularization_alignment_ut = max(
+    TLM.read("ut"),
+    circularization_start_ut - CIRCULARIZATION_ALIGNMENT_BUFFER,
+  )
+
+  if TLM.read("ut") < circularization_alignment_ut:
+    coast_to_ut(
+      conn,
+      "Rails warping to alignment",
+      circularization_alignment_ut,
+      warp_factor=RAILS_WARP_FACTOR,
+      guard=guard,
+    )
 
   time.sleep(0.5)
   guard.check(force=True)
+  stop_warp(conn)
+  vessel.control.throttle = 0
   TLM.update("Aiming prograde")
-  vessel.auto_pilot.target_direction = (0, 1, 0)
   vessel.auto_pilot.engage()
   vessel.auto_pilot.reference_frame = vessel.orbital_reference_frame
-  # while vessel.auto_pilot.error > 1: time.sleep(0.001)
-  # vessel.auto_pilot.wait()
+  vessel.auto_pilot.target_direction = (0, 1, 0)
+  vessel.auto_pilot.target_roll = 0
+  record_mission_event(
+    "circularization_alignment_start",
+    "Launch",
+    autopilot_error=read_autopilot_error(vessel),
+    time_to_apoapsis=TLM.read("time_to_apoapsis"),
+  )
+
+  if not wait_for_autopilot_alignment(vessel, guard, "Aiming prograde", max_wait=45):
+    vessel.control.throttle = 0
+    record_mission_event(
+      "circularization_alignment_failed",
+      "Launch",
+      autopilot_error=read_autopilot_error(vessel),
+      time_to_apoapsis=TLM.read("time_to_apoapsis"),
+      apoapsis=TLM.read("apoapsis"),
+      periapsis=TLM.read("periapsis"),
+    )
+    return False
+
+  record_mission_event(
+    "circularization_alignment_done",
+    "Launch",
+    autopilot_error=read_autopilot_error(vessel),
+    time_to_apoapsis=TLM.read("time_to_apoapsis"),
+  )
+
   while TLM.read("ut") < circularization_start_ut:
     guard.check()
     TLM.update("Waiting to Circularize")
-    time.sleep(0.01)
+    time.sleep(CIRCULARIZATION_BURN_INTERVAL)
+
   guard.check(force=True)
-  vessel.control.throttle = 1
 
   while TLM.read("periapsis") < CIRCULARIZATION_TARGET_PERIAPSIS:
     guard.check()
     TLM.update("Circularizing")
+    if read_autopilot_error(vessel) is not None and read_autopilot_error(vessel) > AUTOPILOT_ALIGNMENT_ERROR:
+      vessel.control.throttle = 0
+      record_mission_event(
+        "circularization_alignment_lost",
+        "Launch",
+        autopilot_error=read_autopilot_error(vessel),
+        apoapsis=TLM.read("apoapsis"),
+        periapsis=TLM.read("periapsis"),
+      )
+
+      if not wait_for_autopilot_alignment(vessel, guard, "Reacquiring prograde", max_wait=10):
+        return False
+
+    remaining_delta_v = TLM.read_delta_v()
+
+    if (
+      TLM.read("periapsis") >= CIRCULARIZATION_TARGET_PERIAPSIS and
+      0 < remaining_delta_v <= CIRCULARIZATION_FUEL_RESERVE_DV
+    ):
+      record_mission_event(
+        "circularization_fuel_reserve_cutoff",
+        "Launch",
+        apoapsis=TLM.read("apoapsis"),
+        periapsis=TLM.read("periapsis"),
+        delta_v=remaining_delta_v,
+      )
+      break
+
+    set_circularization_throttle(vessel)
+
+    if TLM.read("apoapsis") >= CIRCULARIZATION_ABORT_APOAPSIS_LIMIT:
+      break
+
+    if (
+      TLM.read("apoapsis") >= CIRCULARIZATION_HARD_APOAPSIS_LIMIT and
+      TLM.read("periapsis") >= CIRCULARIZATION_TARGET_PERIAPSIS
+    ):
+      record_mission_event(
+        "circularization_apoapsis_cutoff",
+        "Launch",
+        apoapsis=TLM.read("apoapsis"),
+        periapsis=TLM.read("periapsis"),
+      )
+      break
 
     current_stage = vessel.control.current_stage
     next_stage = current_stage - 1
@@ -246,15 +726,15 @@ def circularize(conn, vessel, guard):
       elif TLM.read("periapsis") < CIRCULARIZATION_ATMOSPHERE_ALTITUDE:
         TLM.update("Orbit failed")
         vessel.control.throttle = 0
-        for _ in range(30):
-          time.sleep(0.1)
-          guard.check()
-        return suborbital_landing()
+        configure_suborbital_landing(conn, vessel, guard)
+        return False
 
-    time.sleep(0.01)
+    time.sleep(CIRCULARIZATION_BURN_INTERVAL)
 
   guard.check(force=True)
   vessel.control.throttle = 0
+
+  return TLM.read("periapsis") >= CIRCULARIZATION_TOURISM_PERIAPSIS
 
 ########## Maneuvers
 def suborbital_landing():
@@ -270,17 +750,7 @@ def suborbital_landing():
     TLM.begin(conn, vessel)
     TLM.update("Preparing suborbital landing")
 
-    while vessel.control.current_stage > 0:
-      guard.check()
-      TLM.update("Dumping remaining stages")
-      vessel.control.activate_next_stage()
-      time.sleep(0.1)
-
-    guard.check(force=True)
-    vessel.auto_pilot.reference_frame = vessel.orbital_reference_frame
-    vessel.auto_pilot.target_direction = (0, -1, 0)
-
-    TLM.update("Suborbital landing configured")
+    configure_suborbital_landing(conn, vessel, guard)
   except Exception as error:
     if is_vessel_lost_error(error):
       raise MissionAborted(mission_aborted_message("Suborbital landing")) from error
@@ -303,9 +773,21 @@ def launch_to_orbit():
 
     launch(conn, vessel, guard)
     gravity_turn_to_orbit(conn, vessel, guard)
-    circularize(conn, vessel, guard)
+    if not circularize(conn, vessel, guard):
+      record_mission_event(
+        "launch_orbit_failed_descent_start",
+        "Launch",
+        apoapsis=TLM.read("apoapsis"),
+        periapsis=TLM.read("periapsis"),
+      )
+      TLM.update("Orbit failed")
+      configure_suborbital_landing(conn, vessel, guard)
+      warp_through_aerobraking(conn, vessel, guard)
+      record_mission_event("launch_orbit_failed_descent_done", "Launch")
+      return False
 
     TLM.update("Orbit achieved!")
+    return True
   except Exception as error:
     if is_vessel_lost_error(error):
       raise MissionAborted(mission_aborted_message("Launch")) from error
@@ -315,102 +797,125 @@ def launch_to_orbit():
 
 
 def land_rocket():
+  record_mission_event("land_enter", "Land")
   conn, vessel = safe_connect("Land")
   if not conn:
+    record_mission_event("land_no_connection", "Land")
     raise MissionAborted("Land stopped because no active vessel is available")
 
+  record_mission_event("land_connected", "Land")
   register_mission_connection(conn, vessel, "Land")
   guard = MissionGuard(conn, vessel, "Land")
 
   try:
-    guard.check(force=True)
+    record_mission_event("land_tlm_begin_start", "Land")
     TLM.begin(conn, vessel)
-
+    record_mission_event("land_tlm_begin_done", "Land")
     TLM.update("Preparing deorbit burn")
+    record_mission_event("land_guard_check_start", "Land")
+    guard.check(force=True)
+    record_mission_event("land_guard_check_done", "Land")
 
+    record_mission_event("land_autopilot_setup_start", "Land")
     vessel.auto_pilot.engage()
     vessel.auto_pilot.reference_frame = vessel.orbital_reference_frame
+    record_mission_event("land_autopilot_setup_done", "Land")
 
     apoapsis_arrival_ut = TLM.read("ut") + TLM.read("time_to_apoapsis")
+    record_mission_event(
+      "land_warp_to_apoapsis_start",
+      "Land",
+      target_ut=apoapsis_arrival_ut,
+      time_to_apoapsis=TLM.read("time_to_apoapsis"),
+    )
 
-    manual_rails_warp_until(
+    coast_to_ut(
       conn,
       "Warping to apoapsis",
-      lambda: TLM.read("ut") >= apoapsis_arrival_ut,
-      warp_factor=5,
+      apoapsis_arrival_ut,
+      warp_factor=RAILS_WARP_FACTOR,
       guard=guard,
     )
 
+    record_mission_event("land_warp_to_apoapsis_done", "Land")
     guard.check(force=True)
     TLM.update("Pointing retrograde")
+    vessel.auto_pilot.engage()
+    vessel.auto_pilot.reference_frame = vessel.orbital_reference_frame
     vessel.auto_pilot.target_direction = (0, -1, 0)
-    vessel.auto_pilot.wait()
+    vessel.auto_pilot.target_roll = 0
+    record_mission_event("land_align_retrograde_start", "Land")
+    if not wait_for_autopilot_alignment(vessel, guard, "Pointing retrograde", max_wait=45):
+      record_mission_event(
+        "land_align_retrograde_failed",
+        "Land",
+        autopilot_error=read_autopilot_error(vessel),
+        time_to_apoapsis=TLM.read("time_to_apoapsis"),
+        apoapsis=TLM.read("apoapsis"),
+        periapsis=TLM.read("periapsis"),
+      )
+      raise MissionAborted("Land stopped because retrograde alignment did not settle")
+
+    record_mission_event(
+      "land_align_retrograde_done",
+      "Land",
+      autopilot_error=read_autopilot_error(vessel),
+    )
 
     TLM.update("Lowering periapsis")
     vessel.control.throttle = 0.1
+    record_mission_event("land_deorbit_burn_start", "Land")
 
     while TLM.read("periapsis") > LANDING_DEORBIT_PERIAPSIS:
       guard.check()
       TLM.update("Lowering periapsis")
-      time.sleep(0.1)
 
-    guard.check(force=True)
-    vessel.control.throttle = 0.0
+      if read_autopilot_error(vessel) is not None and read_autopilot_error(vessel) > AUTOPILOT_ALIGNMENT_ERROR:
+        vessel.control.throttle = 0
+        record_mission_event(
+          "land_align_retrograde_lost",
+          "Land",
+          autopilot_error=read_autopilot_error(vessel),
+          apoapsis=TLM.read("apoapsis"),
+          periapsis=TLM.read("periapsis"),
+        )
 
-    manual_rails_warp_until(
-      conn,
-      "Warping to atmosphere",
-      lambda: TLM.read("altitude") <= LANDING_ATMOSPHERE_ALTITUDE,
-      warp_factor=5,
-      abort_condition=lambda: TLM.read("altitude") <= LANDING_ATMOSPHERE_ALTITUDE,
-      guard=guard,
-    )
+        if not wait_for_autopilot_alignment(vessel, guard, "Reacquiring retrograde", max_wait=10):
+          raise MissionAborted("Land stopped because retrograde alignment was lost")
 
-    TLM.update("Entering atmosphere")
+        vessel.control.throttle = 0.1
 
-    TLM.update("Burning remaining fuel")
-    vessel.auto_pilot.target_direction = (0, -1, 0)
-    vessel.control.throttle = 1.0
+      if not has_usable_thrust(vessel):
+        if TLM.read("periapsis") <= LANDING_ATMOSPHERE_ALTITUDE:
+          break
 
-    while TLM.read("liquid_fuel") > 0.1:
-      guard.check()
-      TLM.update("Burning remaining fuel")
-
-      if vessel.control.throttle < 1.0:
-        vessel.control.throttle = 1.0
+        raise MissionAborted("Land stopped because deorbit burn ran out of fuel")
 
       time.sleep(0.1)
 
     guard.check(force=True)
     vessel.control.throttle = 0.0
+    record_mission_event("land_deorbit_burn_done", "Land", periapsis=TLM.read("periapsis"))
 
-    TLM.update("Dumping engines")
-    vessel.control.activate_next_stage()
-
-    while TLM.read("altitude") > PARACHUTE_DEPLOY_ALTITUDE:
-      guard.check()
-      TLM.update("Waiting to deploy parachutes")
-      time.sleep(0.1)
-
-    guard.check(force=True)
-    TLM.update("Deploying parachutes")
-    vessel.control.activate_next_stage()
-
-    while not vessel_is_down(vessel):
-      guard.check()
-      TLM.update("Descending under parachutes")
-      time.sleep(0.1)
-
-    TLM.update("Landed")
+    warp_through_aerobraking(conn, vessel, guard)
   except Exception as error:
+    record_mission_event("land_error", "Land", error=str(error))
     if is_vessel_lost_error(error):
       raise MissionAborted(mission_aborted_message("Land")) from error
     raise
   finally:
+    record_mission_event("land_close", "Land")
     close_mission_connection(conn)
 
 
 def lko_tourism():
-  launch_to_orbit()
+  record_mission_event("lko_sequence_start", "lko_tourism")
+  if not launch_to_orbit():
+    record_mission_event("lko_sequence_orbit_failed", "lko_tourism")
+    return
+
+  record_mission_event("lko_sequence_wait_start", "lko_tourism")
   wait_one_hour()
+  record_mission_event("lko_sequence_land_start", "lko_tourism")
   land_rocket()
+  record_mission_event("lko_sequence_done", "lko_tourism")

@@ -3,6 +3,7 @@ import { DEFAULT_CANVAS_SIZE, getFiniteNumber } from "./p5Helpers";
 
 const FALLBACK_KERBIN_RADIUS = 600000;
 const FALLBACK_MAX_WORLD_RADIUS = 47000000 * 1.05;
+const ATMOSPHERE_ALTITUDE = 70000;
 
 const ORBIT_SEGMENTS = 720;
 const SHIP_ORBIT_SEGMENTS = 360;
@@ -149,7 +150,7 @@ function sketch(p5) {
       FALLBACK_KERBIN_RADIUS,
     );
     const atmosphereRadius = mapWorldRadiusToDisplayRadius(
-      kerbinRadius * 1.12,
+      kerbinRadius + ATMOSPHERE_ALTITUDE,
       maxWorldRadius,
     );
 
@@ -158,12 +159,26 @@ function sketch(p5) {
       maxWorldRadius,
     );
 
+    const gradientSteps = 28;
+
     p5.noStroke();
-    p5.fill(0, 90, 180, 70);
-    p5.circle(getCenterX(), getCenterY(), atmosphereRadius * 2);
+
+    for (let index = gradientSteps; index >= 0; index -= 1) {
+      const amount = index / gradientSteps;
+      const radius = p5.lerp(displayKerbinRadius, atmosphereRadius, amount);
+      const alpha = p5.map(amount, 0, 1, 78, 0);
+
+      p5.fill(0, 90, 180, alpha);
+      p5.circle(getCenterX(), getCenterY(), radius * 2);
+    }
 
     p5.fill(0, 90, 0);
     p5.circle(getCenterX(), getCenterY(), displayKerbinRadius * 2);
+
+    p5.noFill();
+    p5.stroke(180, 210, 235, 110);
+    p5.strokeWeight(1);
+    drawSmoothCircleOutline(atmosphereRadius);
 
     p5.fill(180, 220, 255);
     p5.noStroke();

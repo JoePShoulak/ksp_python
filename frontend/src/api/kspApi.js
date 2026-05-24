@@ -43,6 +43,12 @@ export async function runKspAction(actionId) {
   });
 }
 
+export async function abortKspAction() {
+  return fetchJson("/api/abort", {
+    method: "POST",
+  });
+}
+
 export async function getTelemetry(options = {}) {
   return fetchJson("/api/telemetry", options);
 }
