@@ -37,7 +37,11 @@
     top: 1rem;
     align-self: start;
     padding: 0.75rem;
-    background: linear-gradient(180deg, rgba(22, 29, 37, 0.96), rgba(12, 16, 21, 0.94));
+    background: linear-gradient(
+      180deg,
+      rgba(22, 29, 37, 0.96),
+      rgba(12, 16, 21, 0.94)
+    );
   }
 
   .actions-panel {
@@ -58,8 +62,15 @@
   }
 
   .resource-row {
-    grid-template-columns: minmax(7rem, 8.75rem) minmax(8.5rem, 1fr);
+    grid-template-columns:
+      minmax(6.5rem, 8.5rem)
+      minmax(6rem, 1fr)
+      minmax(6rem, max-content);
     gap: 0.55rem;
+  }
+
+  .resource-value {
+    text-align: right;
   }
 
   .visualization-grid {
@@ -73,20 +84,20 @@
     padding: 0.8rem;
   }
 
-  .visualization-subpanel:nth-child(1) {
+  .subpanel-primary {
     grid-column: span 7;
   }
 
-  .visualization-subpanel:nth-child(2) {
+  .subpanel-secondary {
     grid-column: span 5;
+  }
+
+  .subpanel-camera {
+    grid-column: span 8;
   }
 
   .visualization-subpanel canvas {
     max-width: 30rem;
-  }
-
-  .wide-subpanel {
-    grid-column: auto;
   }
 
   .vessel-status {
@@ -124,12 +135,16 @@
     width: min(100%, 90rem);
   }
 
-  .visualization-subpanel:nth-child(1) {
+  .subpanel-primary {
     grid-column: span 6;
   }
 
-  .visualization-subpanel:nth-child(2) {
+  .subpanel-secondary {
     grid-column: span 6;
+  }
+
+  .subpanel-camera {
+    grid-column: span 8;
   }
 
   .numerical-telemetry {

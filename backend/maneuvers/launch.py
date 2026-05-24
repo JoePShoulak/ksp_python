@@ -8,11 +8,22 @@ from telemetry import TLM
 def safe_connect(name):
   try:
     conn = krpc.connect(name=name)
-  except ConnectionRefusedError:
+  except Exception:
     print("!== Error making connection. Is there a reachable kRPC running in KSP? ==!")
     return False, False
 
-  vessel = conn.space_center.active_vessel
+  try:
+    vessel = conn.space_center.active_vessel
+  except Exception:
+    conn.close()
+    print("!== Error finding an active vessel in KSP. ==!")
+    return False, False
+
+  if not vessel:
+    conn.close()
+    print("!== No active vessel in KSP. ==!")
+    return False, False
+
   return conn, vessel
 
 

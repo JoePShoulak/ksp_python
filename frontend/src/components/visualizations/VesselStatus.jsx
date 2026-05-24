@@ -1,82 +1,21 @@
-function formatMet(totalSeconds) {
-  const number = Number(totalSeconds);
-
-  if (!Number.isFinite(number)) {
-    return "T+ —";
-  }
-
-  const seconds = Math.max(0, Math.floor(number));
-
-  const secondsPerMinute = 60;
-  const secondsPerHour = 60 * secondsPerMinute;
-  const secondsPerKerbinDay = 6 * secondsPerHour;
-  const secondsPerKerbinYear = 426 * secondsPerKerbinDay;
-
-  const years = Math.floor(seconds / secondsPerKerbinYear);
-  const afterYears = seconds % secondsPerKerbinYear;
-
-  const days = Math.floor(afterYears / secondsPerKerbinDay);
-  const afterDays = afterYears % secondsPerKerbinDay;
-
-  const hours = Math.floor(afterDays / secondsPerHour);
-  const afterHours = afterDays % secondsPerHour;
-
-  const minutes = Math.floor(afterHours / secondsPerMinute);
-  const remainingSeconds = afterHours % secondsPerMinute;
-
-  return `T+ ${years}y, ${days}d, ${hours.toString().padStart(2, "0")}:${minutes
-    .toString()
-    .padStart(2, "0")}:${remainingSeconds.toString().padStart(2, "0")}`;
-}
-
-function formatNumber(value, digits = 2) {
-  const number = Number(value);
-
-  if (!Number.isFinite(number)) {
-    return "—";
-  }
-
-  return number.toFixed(digits);
-}
-
-function formatPercent(value) {
-  const number = Number(value);
-
-  if (!Number.isFinite(number)) {
-    return "—";
-  }
-
-  return `${Math.round(number * 100)}%`;
-}
-
-function formatEnumValue(value) {
-  if (!value) {
-    return "—";
-  }
-
-  const rawValue = String(value);
-  const lastPart = rawValue.split(".").at(-1);
-
-  return lastPart
-    .replace(/_/g, " ")
-    .replace(/([a-z])([A-Z])/g, "$1 $2")
-    .replace(/\b\w/g, letter => letter.toUpperCase());
-}
-
-function formatResourceName(name) {
-  if (!name) {
-    return "—";
-  }
-
-  return String(name)
-    .replace(/_/g, " ")
-    .replace(/([a-z])([A-Z])/g, "$1 $2")
-    .replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2");
-}
+import {
+  EMPTY_VALUE,
+  formatEnumValue,
+  formatMet,
+  formatNumber,
+  formatPercent,
+  formatResourceName,
+} from "../../utils/formatters";
 
 function StatusLight({ active, label }) {
+  const stateLabel = active ? "active" : "inactive";
+
   return (
-    <div className={`status-light ${active ? "active" : ""}`} title={label}>
+    <div
+      className={`status-light ${active ? "active" : ""}`}
+      role="status"
+      aria-label={`${label}: ${stateLabel}`}
+      title={`${label}: ${stateLabel}`}>
       {label}
     </div>
   );
@@ -85,16 +24,22 @@ function StatusLight({ active, label }) {
 function ResourceBar({ resource }) {
   const ratio = Math.max(0, Math.min(Number(resource.ratio) || 0, 1));
   const percent = `${ratio * 100}%`;
+  const label = formatResourceName(resource.name);
+  const amount = formatNumber(resource.amount, 2);
+  const max = formatNumber(resource.max, 2);
+  const valueLabel = `${amount} / ${max}`;
 
   return (
     <div className="resource-row">
-      <div className="resource-label">{formatResourceName(resource.name)}</div>
+      <div className="resource-label">{label}</div>
 
-      <div className="resource-bar">
+      <div className="resource-bar" title={`${label}: ${valueLabel}`}>
         <div className="resource-fill" style={{ width: percent }} />
-        <span>
-          {formatNumber(resource.amount, 2)} / {formatNumber(resource.max, 2)}
-        </span>
+        <span>{formatPercent(ratio)}</span>
+      </div>
+
+      <div className="resource-value" title={valueLabel}>
+        {valueLabel}
       </div>
     </div>
   );
@@ -157,13 +102,14 @@ function VesselStatus({ telemetry }) {
         <div className="status-details">
           <div>
             <span>Vessel</span>
-            <strong>{telemetry.vessel_name ?? "—"}</strong>
+            <strong>{telemetry.vessel_name ?? EMPTY_VALUE}</strong>
           </div>
 
           <div>
             <span>Crew</span>
             <strong>
-              {telemetry.crew_count ?? "—"} / {telemetry.crew_capacity ?? "—"}
+              {telemetry.crew_count ?? EMPTY_VALUE} /{" "}
+              {telemetry.crew_capacity ?? EMPTY_VALUE}
             </strong>
           </div>
 

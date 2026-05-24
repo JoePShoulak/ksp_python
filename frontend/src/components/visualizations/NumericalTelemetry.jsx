@@ -1,48 +1,11 @@
-function formatNumber(value, digits = 1) {
-  const number = Number(value);
-
-  if (!Number.isFinite(number)) {
-    return "—";
-  }
-
-  return number.toFixed(digits);
-}
-
-function formatMeters(value) {
-  return `${formatNumber(value, 1)} m`;
-}
-
-function formatMetersPerSecond(value) {
-  return `${formatNumber(value, 1)} m/s`;
-}
-
-function formatSeconds(value) {
-  const number = Number(value);
-
-  if (!Number.isFinite(number)) {
-    return "—";
-  }
-
-  const totalSeconds = Math.max(0, Math.floor(number));
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-
-  if (minutes <= 0) {
-    return `${seconds}s`;
-  }
-
-  return `${minutes}m ${seconds.toString().padStart(2, "0")}s`;
-}
-
-function formatPercent(value) {
-  const number = Number(value);
-
-  if (!Number.isFinite(number)) {
-    return "—";
-  }
-
-  return `${Math.round(number * 100)}%`;
-}
+import {
+  EMPTY_VALUE,
+  formatMeters,
+  formatMetersPerSecond,
+  formatNumber,
+  formatPercent,
+  formatSeconds,
+} from "../../utils/formatters";
 
 function TelemetryGroup({ title, children }) {
   return (
@@ -57,7 +20,7 @@ function TelemetryRow({ label, value }) {
   return (
     <div className="numerical-telemetry-row">
       <span>{label}</span>
-      <strong>{value}</strong>
+      <strong title={value}>{value}</strong>
     </div>
   );
 }
@@ -112,14 +75,14 @@ function NumericalTelemetry({ telemetry }) {
           label="Throttle"
           value={formatPercent(telemetry.throttle)}
         />
-        <TelemetryRow label="Stage" value={telemetry.stage ?? "—"} />
+        <TelemetryRow label="Stage" value={telemetry.stage ?? EMPTY_VALUE} />
         <TelemetryRow
           label="Available Thrust"
           value={`${formatNumber(telemetry.available_thrust, 1)} N`}
         />
         <TelemetryRow
           label="Longitude"
-          value={`${formatNumber(telemetry.longitude, 3)}°`}
+          value={`${formatNumber(telemetry.longitude, 3)} deg`}
         />
       </TelemetryGroup>
     </div>

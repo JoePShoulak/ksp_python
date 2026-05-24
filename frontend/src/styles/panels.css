@@ -1,3 +1,5 @@
+/* Core panels */
+
 .panel {
   min-width: 0;
   border: 1px solid var(--border);
@@ -15,6 +17,8 @@
   text-transform: uppercase;
 }
 
+/* Mission controls */
+
 .actions-panel {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
@@ -22,10 +26,30 @@
 }
 
 .action-button {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
   min-height: 3rem;
   text-align: left;
   font-weight: 800;
 }
+
+.action-button.is-running {
+  border-color: rgba(125, 216, 125, 0.72);
+  background: rgba(36, 62, 43, 0.82);
+  color: #ecfff0;
+}
+
+.action-state {
+  flex: 0 0 auto;
+  color: #aef2b6;
+  font-size: 0.68rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* Telemetry panels */
 
 .visualization-grid {
   display: grid;
@@ -72,9 +96,82 @@
   aspect-ratio: 1 / 1;
 }
 
-.wide-subpanel {
+.subpanel-primary,
+.subpanel-secondary {
   grid-column: 1 / -1;
 }
+
+.camera-stream {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 0.75rem;
+  width: 100%;
+  min-width: 0;
+}
+
+.camera-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.camera-label {
+  color: var(--text);
+  font-weight: 800;
+}
+
+.camera-meta {
+  color: var(--text-muted);
+  font-size: 0.78rem;
+}
+
+.camera-cycle-button {
+  flex: 0 0 auto;
+  min-height: 2.25rem;
+  padding: 0.45rem 0.7rem;
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.camera-viewport {
+  display: grid;
+  place-items: center;
+  min-height: 14rem;
+  overflow: hidden;
+  border: 1px solid #1d2731;
+  border-radius: var(--radius-sm);
+  background: #020407;
+  aspect-ratio: 16 / 9;
+}
+
+.camera-viewport img,
+.camera-viewport iframe {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  object-fit: cover;
+}
+
+.camera-placeholder {
+  display: grid;
+  gap: 0.25rem;
+  padding: 1rem;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.camera-placeholder p {
+  color: var(--text-soft);
+  font-weight: 800;
+}
+
+.camera-placeholder span {
+  font-size: 0.8rem;
+}
+
+/* Idle state */
 
 .idle-panel {
   display: flex;

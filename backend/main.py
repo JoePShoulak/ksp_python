@@ -1,3 +1,5 @@
+import threading
+
 from flask import Flask, jsonify  # type: ignore
 
 from maneuvers.launch import (
@@ -10,13 +12,21 @@ from maneuvers.launch import (
 from telemetry import TLM
 
 app = Flask("KSP Interface app")
+KRPC_QUERY_LOCK = threading.Lock()
 
 @app.route("/api/status", methods=["GET"])
 def status():
+  with KRPC_QUERY_LOCK:
+    conn, vessel = safe_connect("Status")
+    has_vessel = bool(conn and vessel)
+
+    if conn:
+      conn.close()
+
   return jsonify({
     "ok": True,
     "message": "KSP Interface API is running",
-    "has_vessel": TLM.is_initialized(),
+    "has_vessel": has_vessel,
   })
 
 
@@ -60,19 +70,49 @@ def lko_tourism_route():
   })
 
 
-@app.route("/api/telemetry", methods=["GET"])
-def get_telemetry():
-  if not TLM.is_initialized():
-    conn, vessel = safe_connect("Telemetry")
+@app.route("/api/cameras/cycle", methods=["POST"])
+def cycle_camera_route():
+  with KRPC_QUERY_LOCK:
+    conn, vessel = safe_connect("Camera")
 
-    if conn:
-      TLM.begin(conn, vessel)
+    if not conn or not vessel:
+      return jsonify({
+        "ok": False,
+        "error": "No active vessel available for camera cycling",
+      }), 409
 
-  snapshot = TLM.get_snapshot()
+    try:
+      camera_snapshot = TLM.cycle_camera(vessel)
+    finally:
+      conn.close()
 
   return jsonify({
     "ok": True,
-    "has_vessel": TLM.is_initialized(),
+    "has_vessel": True,
+    "cameras": camera_snapshot,
+  })
+
+
+@app.route("/api/telemetry", methods=["GET"])
+def get_telemetry():
+  with KRPC_QUERY_LOCK:
+    conn, vessel = safe_connect("Telemetry")
+
+    if not conn or not vessel:
+      return jsonify({
+        "ok": True,
+        "has_vessel": False,
+        "telemetry": None,
+      })
+
+    try:
+      snapshot = TLM.capture(conn, vessel)
+    finally:
+      conn.close()
+
+  return jsonify({
+    "ok": True,
+    "has_vessel": True,
     "telemetry": snapshot,
   })
 

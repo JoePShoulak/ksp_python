@@ -4,6 +4,7 @@ import VesselStatus from "./visualizations/VesselStatus";
 import NumericalTelemetry from "./visualizations/NumericalTelemetry";
 import AscentCartesian from "./visualizations/AscentCartesian";
 import AscentPolar from "./visualizations/AscentPolar";
+import CameraStream from "./visualizations/CameraStream";
 import KerbinSystemMap from "./visualizations/KerbinSystemMap";
 
 function IdleTelemetryPanel() {
@@ -24,23 +25,38 @@ function IdleTelemetryPanel() {
   );
 }
 
-function VisDatPanel({ telemetry, hasVessel }) {
+function VisDatPanel({
+  telemetry,
+  hasVessel,
+  isCyclingCamera,
+  onCycleCamera,
+}) {
   if (!hasVessel) {
     return <IdleTelemetryPanel />;
   }
 
+  const hasCameras = Boolean(telemetry?.cameras?.available);
+
   return (
     <Panel title="Telemetry">
       <div className="visualization-grid">
-        <VisualizationSubpanel title="Vessel Status" className="wide-subpanel">
+        <VisualizationSubpanel title="Vessel Status" variant="primary">
           <VesselStatus telemetry={telemetry} />
         </VisualizationSubpanel>
 
-        <VisualizationSubpanel
-          title="Numerical Telemetry"
-          className="wide-subpanel">
+        <VisualizationSubpanel title="Numerical Telemetry" variant="secondary">
           <NumericalTelemetry telemetry={telemetry} />
         </VisualizationSubpanel>
+
+        {hasCameras && (
+          <VisualizationSubpanel title="Camera Feed" variant="camera">
+            <CameraStream
+              cameras={telemetry.cameras}
+              isCycling={isCyclingCamera}
+              onCycleCamera={onCycleCamera}
+            />
+          </VisualizationSubpanel>
+        )}
 
         <VisualizationSubpanel title="Kerbin System">
           <KerbinSystemMap telemetry={telemetry} />

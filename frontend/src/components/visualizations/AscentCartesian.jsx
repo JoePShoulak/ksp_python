@@ -1,7 +1,5 @@
 import { P5Canvas } from "@p5-wrapper/react";
-
-const DEFAULT_WIDTH = 600;
-const DEFAULT_HEIGHT = 600;
+import { DEFAULT_CANVAS_SIZE, getFiniteNumber } from "./p5Helpers";
 
 const GROUND_HEIGHT = 50;
 
@@ -19,8 +17,8 @@ const SHIP_DOT_SIZE = 10;
 function sketch(p5) {
   let props = {
     telemetry: null,
-    width: DEFAULT_WIDTH,
-    height: DEFAULT_HEIGHT,
+    width: DEFAULT_CANVAS_SIZE,
+    height: DEFAULT_CANVAS_SIZE,
   };
 
   let trailLayer;
@@ -75,19 +73,9 @@ function sketch(p5) {
     return p5.lerpColor(noThrottleColor, fullThrottleColor, clampedThrottle);
   }
 
-  function getNumber(value, fallback = 0) {
-    const number = Number(value);
-
-    if (!Number.isFinite(number)) {
-      return fallback;
-    }
-
-    return number;
-  }
-
   function getAscentPosition(telemetry) {
-    const altitude = getNumber(telemetry.altitude);
-    const longitude = getNumber(telemetry.longitude);
+    const altitude = getFiniteNumber(telemetry.altitude);
+    const longitude = getFiniteNumber(telemetry.longitude);
 
     return {
       x: mapLongitudeToX(longitude),
@@ -199,8 +187,8 @@ function sketch(p5) {
   p5.draw = () => {
     const telemetry = props.telemetry ?? {};
 
-    const apoapsis = getNumber(telemetry.apoapsis);
-    const throttle = getNumber(telemetry.throttle, -1);
+    const apoapsis = getFiniteNumber(telemetry.apoapsis);
+    const throttle = getFiniteNumber(telemetry.throttle, -1);
 
     if (throttle > -1) {
       hasTelemetryConnected = true;

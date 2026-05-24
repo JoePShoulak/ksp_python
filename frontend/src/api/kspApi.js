@@ -19,17 +19,18 @@ async function fetchJson(url, options = {}) {
   return data;
 }
 
-export async function getStatus(options = {}) {
-  return fetchJson("/api/status", options);
-}
-
-// TODO: Teach this fetch to abort if the connection to the ship has been lost
 export async function runKspAction(actionId) {
   return fetchJson(`/api/actions/${actionId}`, {
     method: "POST",
   });
 }
 
-export async function getTelemetry() {
-  return fetchJson("/api/telemetry");
+export async function getTelemetry(options = {}) {
+  return fetchJson("/api/telemetry", options);
+}
+
+export async function cycleCamera() {
+  return fetchJson("/api/cameras/cycle", {
+    method: "POST",
+  });
 }

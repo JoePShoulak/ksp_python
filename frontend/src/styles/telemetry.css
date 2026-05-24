@@ -1,3 +1,5 @@
+/* Data cards */
+
 .vessel-status,
 .numerical-telemetry {
   display: grid;
@@ -42,6 +44,8 @@
   white-space: nowrap;
 }
 
+/* Status indicators */
+
 .status-icon-row {
   display: flex;
   gap: 0.4rem;
@@ -66,6 +70,8 @@
   background: #0a2715;
   color: #86f29c;
 }
+
+/* Label/value rows */
 
 .status-details,
 .numerical-telemetry-list {
@@ -97,6 +103,8 @@
   text-overflow: ellipsis;
   white-space: normal;
 }
+
+/* Resources */
 
 .resource-list {
   display: grid;
@@ -153,4 +161,16 @@
     0 -1px 1px rgba(0, 0, 0, 0.9),
     1px 0 1px rgba(0, 0, 0, 0.9),
     -1px 0 1px rgba(0, 0, 0, 0.9);
+}
+
+.resource-value {
+  min-width: 0;
+  color: var(--text-soft);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-weight: 700;
+  overflow: hidden;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }

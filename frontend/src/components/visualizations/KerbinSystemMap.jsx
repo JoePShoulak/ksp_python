@@ -1,7 +1,5 @@
 import { P5Canvas } from "@p5-wrapper/react";
-
-const DEFAULT_WIDTH = 600;
-const DEFAULT_HEIGHT = 600;
+import { DEFAULT_CANVAS_SIZE, getFiniteNumber } from "./p5Helpers";
 
 const FALLBACK_KERBIN_RADIUS = 600000;
 const FALLBACK_MAX_WORLD_RADIUS = 47000000 * 1.05;
@@ -16,8 +14,8 @@ const SHIP_DOT_SIZE = 8;
 function sketch(p5) {
   let props = {
     telemetry: null,
-    width: DEFAULT_WIDTH,
-    height: DEFAULT_HEIGHT,
+    width: DEFAULT_CANVAS_SIZE,
+    height: DEFAULT_CANVAS_SIZE,
   };
 
   function getCenterX() {
@@ -30,16 +28,6 @@ function sketch(p5) {
 
   function getMaxDrawRadius() {
     return Math.min(p5.width, p5.height) * 0.45;
-  }
-
-  function getNumber(value, fallback = 0) {
-    const number = Number(value);
-
-    if (!Number.isFinite(number)) {
-      return fallback;
-    }
-
-    return number;
   }
 
   function isFiniteNumber(value) {
@@ -57,8 +45,8 @@ function sketch(p5) {
 
   function getMapVector(vector) {
     return {
-      x: getNumber(vector?.x),
-      y: getNumber(vector?.z),
+      x: getFiniteNumber(vector?.x),
+      y: getFiniteNumber(vector?.z),
     };
   }
 
@@ -156,7 +144,10 @@ function sketch(p5) {
 
   function drawKerbin(system, maxWorldRadius) {
     const kerbin = system?.reference_body;
-    const kerbinRadius = getNumber(kerbin?.radius, FALLBACK_KERBIN_RADIUS);
+    const kerbinRadius = getFiniteNumber(
+      kerbin?.radius,
+      FALLBACK_KERBIN_RADIUS,
+    );
     const atmosphereRadius = mapWorldRadiusToDisplayRadius(
       kerbinRadius * 1.12,
       maxWorldRadius,
@@ -281,7 +272,7 @@ function sketch(p5) {
 
   function drawShipOrbit(system, maxWorldRadius) {
     const vessel = system?.vessel;
-    const kerbinRadius = getNumber(
+    const kerbinRadius = getFiniteNumber(
       system?.reference_body?.radius,
       FALLBACK_KERBIN_RADIUS,
     );

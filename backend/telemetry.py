@@ -1,9 +1,30 @@
 # telemetry.py
 
 import math
+import os
 import threading
 
+from config import load_env_file
+
+load_env_file()
+
 G0 = 9.80665
+
+CAMERA_MODULE_PATTERNS = (
+  "camera",
+  "hullcam",
+  "mumechmodulehullcamera",
+  "externalcameraselector",
+)
+
+CAMERA_EVENT_PATTERNS = (
+  "activate",
+  "camera",
+  "view",
+)
+
+CAMERA_STREAM_URL = os.environ.get("KSP_CAMERA_STREAM_URL", "")
+CAMERA_STREAM_KIND = os.environ.get("KSP_CAMERA_STREAM_KIND", "image")
 
 def calc_total_dv(vessel):
   parts = list(vessel.parts.all)
@@ -269,15 +290,207 @@ def get_kerbin_system_snapshot(conn, vessel):
   }
 
 
+def text_matches_any(value, patterns):
+  text = str(value or "").lower()
+
+  return any(pattern in text for pattern in patterns)
+
+
+def get_part_label(part):
+  return (
+    safe_value(lambda: part.title)
+    or safe_value(lambda: part.name)
+    or "Camera"
+  )
+
+
+def module_looks_like_camera(module):
+  module_name = safe_value(lambda: module.name, "")
+  field_names = safe_value(lambda: list(module.fields), [])
+  event_names = safe_value(lambda: list(module.events), [])
+  action_names = safe_value(lambda: list(module.actions), [])
+
+  candidates = [
+    module_name,
+    *field_names,
+    *event_names,
+    *action_names,
+  ]
+
+  return any(
+    text_matches_any(candidate, CAMERA_MODULE_PATTERNS)
+    for candidate in candidates
+  )
+
+
+def get_camera_stream_url(camera):
+  if not CAMERA_STREAM_URL:
+    return None
+
+  try:
+    return CAMERA_STREAM_URL.format(
+      camera_id=camera["id"],
+      camera_index=camera["index"],
+      part_name=camera["part_name"],
+    )
+  except Exception:
+    return CAMERA_STREAM_URL
+
+
+def get_camera_snapshot(vessel, selected_camera_id=None):
+  cameras = []
+
+  for index, part in enumerate(safe_value(lambda: list(vessel.parts.all), [])):
+    modules = safe_value(lambda part=part: list(part.modules), [])
+    camera_modules = [
+      module
+      for module in modules
+      if module_looks_like_camera(module)
+    ]
+
+    if not camera_modules:
+      continue
+
+    part_name = safe_value(lambda part=part: part.name, f"camera-{index}")
+    part_label = get_part_label(part)
+    module_names = [
+      safe_value(lambda module=module: module.name, "")
+      for module in camera_modules
+    ]
+
+    cameras.append({
+      "id": f"{index}:{part_name}",
+      "index": len(cameras),
+      "part_name": part_name,
+      "label": part_label,
+      "modules": module_names,
+    })
+
+  selected_index = 0
+
+  if selected_camera_id:
+    for index, camera in enumerate(cameras):
+      if camera["id"] == selected_camera_id:
+        selected_index = index
+        break
+
+  selected_camera = cameras[selected_index] if cameras else None
+
+  if selected_camera:
+    selected_camera = {
+      **selected_camera,
+      "stream_url": get_camera_stream_url(selected_camera),
+      "stream_kind": CAMERA_STREAM_KIND,
+    }
+
+  return {
+    "available": len(cameras) > 0,
+    "count": len(cameras),
+    "selected_index": selected_index if cameras else None,
+    "selected": selected_camera,
+    "cameras": cameras,
+  }
+
+
+def trigger_camera_module(module):
+  event_names = safe_value(lambda: list(module.events), [])
+  action_names = safe_value(lambda: list(module.actions), [])
+
+  for event_name in event_names:
+    if text_matches_any(event_name, CAMERA_EVENT_PATTERNS):
+      did_trigger = safe_value(
+        lambda event_name=event_name: module.trigger_event(event_name),
+        False,
+      )
+
+      if did_trigger is not False:
+        return True
+
+  for action_name in action_names:
+    if text_matches_any(action_name, CAMERA_EVENT_PATTERNS):
+      did_trigger = safe_value(
+        lambda action_name=action_name: module.set_action(action_name, True),
+        False,
+      )
+
+      if did_trigger is not False:
+        return True
+
+  return False
+
+
+def get_delta_v_warning(vessel):
+  total_dv = safe_value(lambda: calc_total_dv(vessel), 0)
+
+  if total_dv < 2500:
+    return f"Critical dV {round(total_dv)}/3400 for LKO"
+
+  if total_dv < 3000:
+    return f"Very low dV {round(total_dv)}/3400 for LKO"
+
+  if total_dv < 3400:
+    return f"Low dV {round(total_dv)}/3400 for LKO"
+
+  if total_dv < 3900:
+    return f"Marginal dV {round(total_dv)}/3400 for LKO"
+
+  return "None"
+
+
+def get_vessel_snapshot(conn, vessel, status="nominal", selected_camera_id=None):
+  orbit = safe_value(lambda: vessel.orbit)
+  body = safe_value(lambda: orbit.body)
+  reference_frame = safe_value(lambda: body.reference_frame)
+  flight = safe_value(lambda: vessel.flight(reference_frame))
+
+  return {
+    "status": status,
+    "apoapsis": safe_value(lambda: orbit.apoapsis_altitude),
+    "periapsis": safe_value(lambda: orbit.periapsis_altitude),
+    "altitude": safe_value(lambda: flight.mean_altitude),
+    "surface_altitude": safe_value(lambda: flight.surface_altitude),
+    "vertical_speed": safe_value(lambda: flight.vertical_speed),
+    "speed": safe_value(lambda: flight.speed),
+    "longitude": safe_value(lambda: flight.longitude),
+    "ut": safe_value(lambda: conn.space_center.ut),
+    "met": safe_value(lambda: vessel.met),
+    "time_to_apoapsis": safe_value(lambda: orbit.time_to_apoapsis),
+    "time_to_periapsis": safe_value(lambda: orbit.time_to_periapsis),
+    "liquid_fuel": safe_value(lambda: vessel.resources.amount("LiquidFuel")),
+    "stage": safe_value(lambda: vessel.control.current_stage),
+    "throttle": safe_value(lambda: vessel.control.throttle),
+    "available_thrust": safe_value(lambda: vessel.available_thrust),
+    "situation": safe_value(lambda: str(vessel.situation)),
+    "warning": get_delta_v_warning(vessel),
+    "vessel_name": safe_value(lambda: vessel.name),
+    "crew_count": safe_value(lambda: vessel.crew_count, 0),
+    "crew_capacity": safe_value(lambda: vessel.crew_capacity, 0),
+    "has_crew_control": safe_value(lambda: vessel.crew_count, 0) > 0,
+    "comms": get_comms_snapshot(vessel),
+    "warp": get_warp_status(conn),
+    "resources": get_resource_snapshot(vessel),
+    "cameras": get_camera_snapshot(vessel, selected_camera_id),
+    "kerbin_system": get_kerbin_system_snapshot(conn, vessel),
+  }
+
+
 class Telemetry:
   def __init__(self):
     self._lock = threading.Lock()
     self._data = {}
     self._getters = {}
+    self._conn = None
+    self._vessel = None
+    self._vessel_name = None
+    self._selected_camera_id = None
     self._warning = "None"
     self._initialized = False
 
   def begin(self, conn, vessel):
+    if not conn or not vessel:
+      self.reset()
+      return False
+
     flight = vessel.flight(vessel.orbit.body.reference_frame)
 
     altitude = conn.add_stream(getattr, flight, "mean_altitude")
@@ -333,11 +546,128 @@ class Telemetry:
       "comms": lambda: get_comms_snapshot(vessel),
       "warp": lambda: get_warp_status(conn),
       "resources": lambda: get_resource_snapshot(vessel),
+      "cameras": lambda: get_camera_snapshot(
+        vessel,
+        self._selected_camera_id,
+      ),
       "kerbin_system": lambda: get_kerbin_system_snapshot(conn, vessel),
     }
 
+    self._conn = conn
+    self._vessel = vessel
+    self._vessel_name = safe_value(lambda: vessel.name)
     self._initialized = True
     self.update("Telemetry initialized")
+    return True
+
+  def reset(self):
+    with self._lock:
+      self._data = {}
+
+    self._getters = {}
+    self._conn = None
+    self._vessel = None
+    self._vessel_name = None
+    self._selected_camera_id = None
+    self._warning = "None"
+    self._initialized = False
+
+  def get_active_vessel(self):
+    if not self._conn:
+      return None
+
+    active_vessel = safe_value(lambda: self._conn.space_center.active_vessel)
+
+    if not active_vessel:
+      return None
+
+    active_name = safe_value(lambda: active_vessel.name)
+
+    if not active_name:
+      return None
+
+    return active_vessel
+
+  def has_active_vessel(self):
+    if not self._initialized:
+      return False
+
+    active_vessel = self.get_active_vessel()
+
+    if not active_vessel:
+      self.reset()
+      return False
+
+    active_name = safe_value(lambda: active_vessel.name)
+
+    if active_name != self._vessel_name:
+      return False
+
+    return True
+
+  def sync_active_vessel(self):
+    if not self._initialized:
+      return False
+
+    active_vessel = self.get_active_vessel()
+
+    if not active_vessel:
+      self.reset()
+      return False
+
+    active_name = safe_value(lambda: active_vessel.name)
+
+    if active_name != self._vessel_name:
+      return self.begin(self._conn, active_vessel)
+
+    return True
+
+  def capture(self, conn, vessel, status="nominal"):
+    snapshot = get_vessel_snapshot(
+      conn,
+      vessel,
+      status,
+      self._selected_camera_id,
+    )
+
+    with self._lock:
+      self._data = snapshot
+
+    return snapshot
+
+  def cycle_camera(self, vessel=None):
+    target_vessel = vessel or self._vessel
+
+    if not target_vessel:
+      return get_camera_snapshot(None)
+
+    camera_snapshot = get_camera_snapshot(
+      target_vessel,
+      self._selected_camera_id,
+    )
+
+    if not camera_snapshot["available"]:
+      self._selected_camera_id = None
+      return camera_snapshot
+
+    next_index = (camera_snapshot["selected_index"] + 1) % camera_snapshot["count"]
+    selected_camera = camera_snapshot["cameras"][next_index]
+    self._selected_camera_id = selected_camera["id"]
+
+    for part_index, part in enumerate(safe_value(lambda: list(target_vessel.parts.all), [])):
+      part_name = safe_value(lambda part=part: part.name, "")
+      camera_id = f"{part_index}:{part_name}"
+
+      if camera_id != self._selected_camera_id:
+        continue
+
+      for module in safe_value(lambda part=part: list(part.modules), []):
+        if module_looks_like_camera(module) and trigger_camera_module(module):
+          break
+
+      break
+
+    return get_camera_snapshot(target_vessel, self._selected_camera_id)
 
   def read(self, name):
     if not self._initialized:
@@ -371,6 +701,9 @@ class Telemetry:
     return self._initialized
 
   def get_snapshot(self):
+    if not self.has_active_vessel():
+      return {}
+
     with self._lock:
       return dict(self._data)
 
