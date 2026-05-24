@@ -86,6 +86,17 @@ def safe_value(getter, fallback=None):
     return fallback
 
 
+def vector_to_json(vector):
+  if vector is None:
+    return None
+
+  return {
+    "x": vector[0],
+    "y": vector[1],
+    "z": vector[2],
+  }
+
+
 def get_warp_status(conn):
   rails_warp = safe_value(lambda: conn.space_center.rails_warp_factor, 0)
   physics_warp = safe_value(lambda: conn.space_center.physics_warp_factor, 0)
@@ -94,14 +105,14 @@ def get_warp_status(conn):
     return {
       "mode": "rails",
       "factor_index": rails_warp,
-      "label": f"Rails warp {rails_warp}",
+      "label": f"{rails_warp}x",
     }
 
   if physics_warp > 0:
     return {
       "mode": "physics",
       "factor_index": physics_warp,
-      "label": f"Physics warp {physics_warp}",
+      "label": f"{physics_warp}x",
     }
 
   return {
@@ -192,6 +203,72 @@ def get_resource_snapshot(vessel):
   return resources
 
 
+def get_body_by_name(conn, name):
+  return safe_value(lambda: conn.space_center.bodies[name])
+
+
+def get_body_snapshot(body, reference_frame):
+  if body is None:
+    return None
+
+  position = safe_value(lambda: body.position(reference_frame))
+  orbit = safe_value(lambda: body.orbit)
+
+  return {
+    "name": safe_value(lambda: body.name),
+    "radius": safe_value(lambda: body.equatorial_radius),
+    "position": vector_to_json(position),
+    "apoapsis": safe_value(lambda: orbit.apoapsis),
+    "periapsis": safe_value(lambda: orbit.periapsis),
+    "apoapsis_altitude": safe_value(lambda: orbit.apoapsis_altitude),
+    "periapsis_altitude": safe_value(lambda: orbit.periapsis_altitude),
+  }
+
+
+def get_vessel_system_snapshot(vessel, reference_frame):
+  position = safe_value(lambda: vessel.position(reference_frame))
+  orbit = safe_value(lambda: vessel.orbit)
+
+  return {
+    "name": safe_value(lambda: vessel.name),
+    "position": vector_to_json(position),
+    "apoapsis": safe_value(lambda: orbit.apoapsis),
+    "periapsis": safe_value(lambda: orbit.periapsis),
+    "apoapsis_altitude": safe_value(lambda: orbit.apoapsis_altitude),
+    "periapsis_altitude": safe_value(lambda: orbit.periapsis_altitude),
+  }
+
+
+def get_kerbin_system_snapshot(conn, vessel):
+  reference_body = safe_value(lambda: vessel.orbit.body)
+
+  if reference_body is None:
+    return None
+
+  reference_frame = safe_value(lambda: reference_body.non_rotating_reference_frame)
+
+  if reference_frame is None:
+    return None
+
+  mun = get_body_by_name(conn, "Mun")
+  minmus = get_body_by_name(conn, "Minmus")
+
+  bodies = [
+    get_body_snapshot(mun, reference_frame),
+    get_body_snapshot(minmus, reference_frame),
+  ]
+
+  return {
+    "reference_body": get_body_snapshot(reference_body, reference_frame),
+    "vessel": get_vessel_system_snapshot(vessel, reference_frame),
+    "bodies": [
+      body
+      for body in bodies
+      if body is not None
+    ],
+  }
+
+
 class Telemetry:
   def __init__(self):
     self._lock = threading.Lock()
@@ -256,6 +333,7 @@ class Telemetry:
       "comms": lambda: get_comms_snapshot(vessel),
       "warp": lambda: get_warp_status(conn),
       "resources": lambda: get_resource_snapshot(vessel),
+      "kerbin_system": lambda: get_kerbin_system_snapshot(conn, vessel),
     }
 
     self._initialized = True
