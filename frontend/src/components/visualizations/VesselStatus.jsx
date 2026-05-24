@@ -100,10 +100,36 @@ function ResourceBar({ resource }) {
   );
 }
 
+function sortResources(resources) {
+  const liquidFuelIndex = resources.findIndex(
+    resource => resource.name === "LiquidFuel",
+  );
+
+  const oxidizerIndex = resources.findIndex(
+    resource => resource.name === "Oxidizer",
+  );
+
+  if (liquidFuelIndex === -1 || oxidizerIndex === -1) {
+    return resources;
+  }
+
+  const sortedResources = resources.filter(
+    resource => resource.name !== "Oxidizer",
+  );
+
+  const newLiquidFuelIndex = sortedResources.findIndex(
+    resource => resource.name === "LiquidFuel",
+  );
+
+  sortedResources.splice(newLiquidFuelIndex + 1, 0, resources[oxidizerIndex]);
+
+  return sortedResources;
+}
+
 function VesselStatus({ telemetry }) {
   const comms = telemetry?.comms ?? {};
   const warp = telemetry?.warp ?? {};
-  const resources = telemetry?.resources ?? [];
+  const resources = sortResources(telemetry?.resources ?? []);
 
   const hasCrew = Boolean(telemetry?.has_crew_control);
   const hasComm = Boolean(comms.display_has_connection ?? comms.has_connection);
