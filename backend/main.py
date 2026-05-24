@@ -12,46 +12,41 @@ def status():
         "message": "KSP Interface API is running",
     })
 
-@app.route("/api/actions/<path:act>", methods=["POST"])
-def post_action(act: str):
-    print(f"Someone just asked us to do {act}")
+@app.route("/api/actions/launch_rocket", methods=["POST"])
+def launch_rocket_route():
+  launch_to_orbit()
+  return jsonify({
+    "ok": True,
+    "action": "launch_rocket",
+    "message": "The rocket launch script has been started",
+  })
 
-    if act == "launch_rocket":
-        launch_to_orbit()
-        return jsonify({
-            "ok": True,
-            "action": act,
-            "message": "The rocket launch script has been started",
-        })
+@app.route("/api/actions/land_rocket", methods=["POST"])
+def land_rocket_route():
+  land_rocket()
+  return jsonify({
+    "ok": True,
+    "action": "land_rocket",
+    "message": "The rocket launch script has been started",
+  })
 
-    if act == "wait_one_hour":
-        wait_one_hour()
-        return jsonify({
-            "ok": True,
-            "action": act,
-            "message": "The test has been run",
-        })
+@app.route("/api/actions/wait_one_hour", methods=["POST"])
+def wait_one_hour_route():
+  wait_one_hour()
+  return jsonify({
+    "ok": True,
+    "action": "wait_one_hour",
+    "message": "The rocket launch script has been started",
+  })
 
-    if act == "land_rocket":
-        land_rocket()
-        return jsonify({
-            "ok": True,
-            "action": act,
-            "message": "The rocket has landed",
-        })
-
-    if act == "lko_tourism":
-        lko_tourism()
-        return jsonify({
-            "ok": True,
-            "action": act,
-            "message": "The rocket has landed",
-        })
-
-    return jsonify({
-        "ok": False,
-        "error": f"Unknown action: {act}",
-    }), 404
+@app.route("/api/actions/lko_tourism", methods=["POST"])
+def lko_tourism_route():
+  lko_tourism()
+  return jsonify({
+    "ok": True,
+    "action": "lko_tourism",
+    "message": "The rocket launch script has been started",
+  })
 
 
 @app.route("/api/telemetry", methods=["GET"])

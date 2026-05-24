@@ -29,7 +29,7 @@ function TelemetryPanel({ enabled, onToggle, telemetry, setTelemetry }) {
         .catch(error => {
           setError(error.message);
         });
-    }, 250);
+    }, 50);
 
     return () => {
       clearInterval(intervalId);

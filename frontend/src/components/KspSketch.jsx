@@ -127,7 +127,7 @@ function sketch(p5) {
     });
   };
 
-  let launched = false;
+  let connected = false;
 
   p5.draw = () => {
     const telemetry = props.telemetry ?? {};
@@ -135,9 +135,9 @@ function sketch(p5) {
     const altitude = Number(telemetry.altitude ?? 0);
     const longitude = Number(telemetry.longitude ?? 0);
     const apoapsis = Number(telemetry.apoapsis ?? 0);
-    const throttle = Number(telemetry.throttle ?? 0);
+    const throttle = Number(telemetry.throttle ?? -1);
 
-    if (throttle > 0) launched = true;
+    if (throttle > -1) connected = true;
 
     const shipX = xmap(longitude);
     const shipY = ymap(altitude);
@@ -145,10 +145,12 @@ function sketch(p5) {
     p5.background(15);
 
     drawBackground();
-    drawApoapsisLine(apoapsis);
-    if (launched) updateTrailLayer(shipX, shipY, throttle);
-    drawTrailLayer();
-    drawShip(shipX, shipY, throttle);
+    if (connected) {
+      drawApoapsisLine(apoapsis);
+      updateTrailLayer(shipX, shipY, throttle);
+      drawTrailLayer();
+      drawShip(shipX, shipY, throttle);
+    }
   };
 }
 
