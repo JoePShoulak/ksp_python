@@ -8,6 +8,7 @@ from mission_state import (
   abort_active_mission,
   abort_active_mission_if_stale,
   get_active_mission_status,
+  get_registered_mission,
   get_mission_events,
   is_vessel_lost_error,
   record_mission_event,
@@ -215,11 +216,14 @@ def get_telemetry():
   snapshot = TLM.get_snapshot()
 
   if snapshot:
-    return jsonify({
-      "ok": True,
-      "has_vessel": True,
-      "telemetry": snapshot,
-    })
+    if get_registered_mission() or TLM.has_active_vessel():
+      return jsonify({
+        "ok": True,
+        "has_vessel": True,
+        "telemetry": snapshot,
+      })
+
+    TLM.reset()
 
   with KRPC_QUERY_LOCK:
     conn, vessel = safe_connect("Telemetry")

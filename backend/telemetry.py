@@ -343,11 +343,24 @@ def get_delta_v_warning(vessel):
   return get_delta_v_warning_value(safe_value(lambda: calc_total_dv(vessel), 0))
 
 
+def is_landed_situation(situation):
+  return str(situation).split(".")[-1] in ("landed", "pre_launch", "splashed")
+
+
+def normalize_surface_altitude(surface_altitude, situation):
+  if is_landed_situation(situation):
+    return 0
+
+  return surface_altitude
+
+
 def get_vessel_snapshot(conn, vessel, status="nominal", delta_v=None):
   orbit = safe_value(lambda: vessel.orbit)
   body = safe_value(lambda: orbit.body)
   reference_frame = safe_value(lambda: body.reference_frame)
   flight = safe_value(lambda: vessel.flight(reference_frame))
+  situation = safe_value(lambda: vessel.situation)
+  surface_altitude = safe_value(lambda: flight.surface_altitude)
 
   if delta_v is None:
     delta_v = safe_value(lambda: calc_total_dv(vessel), 0)
@@ -357,7 +370,7 @@ def get_vessel_snapshot(conn, vessel, status="nominal", delta_v=None):
     "apoapsis": safe_value(lambda: orbit.apoapsis_altitude),
     "periapsis": safe_value(lambda: orbit.periapsis_altitude),
     "altitude": safe_value(lambda: flight.mean_altitude),
-    "surface_altitude": safe_value(lambda: flight.surface_altitude),
+    "surface_altitude": normalize_surface_altitude(surface_altitude, situation),
     "vertical_speed": safe_value(lambda: flight.vertical_speed),
     "speed": safe_value(lambda: flight.speed),
     "longitude": safe_value(lambda: flight.longitude),
@@ -370,7 +383,7 @@ def get_vessel_snapshot(conn, vessel, status="nominal", delta_v=None):
     "throttle": safe_value(lambda: vessel.control.throttle),
     "available_thrust": safe_value(lambda: vessel.available_thrust),
     "delta_v": delta_v,
-    "situation": safe_value(lambda: str(vessel.situation)),
+    "situation": safe_value(lambda: str(situation)),
     "warning": get_delta_v_warning(vessel),
     "vessel_name": safe_value(lambda: vessel.name),
     "crew_count": safe_value(lambda: vessel.crew_count, 0),
@@ -564,6 +577,18 @@ class Telemetry:
     active_name = safe_value(lambda: active_vessel.name)
 
     if active_name != self._vessel_name:
+      self.reset()
+      return False
+
+    current_met = safe_value(lambda: active_vessel.met)
+    snapshot_met = self.get_snapshot().get("met")
+
+    if (
+      current_met is not None
+      and snapshot_met is not None
+      and current_met + 2 < snapshot_met
+    ):
+      self.reset()
       return False
 
     return True
@@ -582,6 +607,17 @@ class Telemetry:
 
     if active_name != self._vessel_name:
       return self.begin(self._conn, active_vessel)
+
+    current_met = safe_value(lambda: active_vessel.met)
+    snapshot_met = self.get_snapshot().get("met")
+
+    if (
+      current_met is not None
+      and snapshot_met is not None
+      and current_met + 2 < snapshot_met
+    ):
+      self.reset()
+      return False
 
     return True
 
@@ -620,6 +656,11 @@ class Telemetry:
 
     for name, getter in self._getters.items():
       values[name] = safe_value(getter)
+
+    values["surface_altitude"] = normalize_surface_altitude(
+      values.get("surface_altitude"),
+      values.get("situation"),
+    )
 
     return values
 
