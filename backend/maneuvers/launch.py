@@ -16,17 +16,21 @@ from telemetry import TLM
 ########## Helpers
 
 LAUNCH_VERTICAL_ASCENT_ALTITUDE = 1000
+LAUNCH_VERTICAL_ASCENT_TIMEOUT = 45
+LAUNCH_MIN_CLIMB_ALTITUDE = 120
 LAUNCH_TARGET_APOAPSIS = 80000
 CIRCULARIZATION_ATMOSPHERE_ALTITUDE = 70000
 CIRCULARIZATION_TOURISM_PERIAPSIS = 75000
 CIRCULARIZATION_LEAD_TIME = 10
-CIRCULARIZATION_ALIGNMENT_BUFFER = 35
+CIRCULARIZATION_ALIGNMENT_BUFFER = 75
 CIRCULARIZATION_TARGET_PERIAPSIS = 75500
 CIRCULARIZATION_FUEL_RESERVE_DV = 50
 CIRCULARIZATION_TARGET_APOAPSIS = 82000
-CIRCULARIZATION_SOFT_APOAPSIS_LIMIT = 85000
-CIRCULARIZATION_HARD_APOAPSIS_LIMIT = 95000
+CIRCULARIZATION_SOFT_APOAPSIS_LIMIT = 95000
+CIRCULARIZATION_HARD_APOAPSIS_LIMIT = 110000
 CIRCULARIZATION_ABORT_APOAPSIS_LIMIT = 125000
+CIRCULARIZATION_MIN_BURN_TIME = 0.25
+CIRCULARIZATION_MAX_BURN_TIME = 90
 LANDING_ATMOSPHERE_ALTITUDE = 70000
 LANDING_DEORBIT_PERIAPSIS = 55000
 PARACHUTE_DEPLOY_ALTITUDE = 5000
@@ -89,6 +93,16 @@ def read_autopilot_error(vessel):
     return vessel.auto_pilot.error
   except Exception:
     return None
+
+
+def reset_manual_controls(vessel):
+  vessel.control.throttle = 0
+  vessel.control.pitch = 0
+  vessel.control.yaw = 0
+  vessel.control.roll = 0
+  vessel.control.forward = 0
+  vessel.control.right = 0
+  vessel.control.up = 0
 
 
 def manual_physics_warp_until(
@@ -264,70 +278,102 @@ def set_circularization_throttle(vessel):
     vessel.control.throttle = 0
     return
 
-  if (
-    apoapsis >= CIRCULARIZATION_SOFT_APOAPSIS_LIMIT and
-    periapsis >= CIRCULARIZATION_TOURISM_PERIAPSIS
-  ):
-    vessel.control.throttle = 0.05
-    return
-
-  if apoapsis >= CIRCULARIZATION_HARD_APOAPSIS_LIMIT:
-    vessel.control.throttle = 0.05
-    return
-
-  if apoapsis >= CIRCULARIZATION_SOFT_APOAPSIS_LIMIT:
-    vessel.control.throttle = 0.15
-    return
-
   if periapsis >= 70000:
     vessel.control.throttle = 0.08
     return
 
   if periapsis >= 50000:
-    vessel.control.throttle = 0.25
+    vessel.control.throttle = 0.15
+    return
+
+  if periapsis >= 0:
+    vessel.control.throttle = 0.35
+    return
+
+  if periapsis >= -50000:
+    vessel.control.throttle = 0.6
     return
 
   vessel.control.throttle = 1
 
 
-def estimate_circularization_delta_v(vessel):
+def calculate_orbital_speed(mu, radius, semi_major_axis):
+  return math.sqrt(mu * ((2 / radius) - (1 / semi_major_axis)))
+
+
+def calculate_apsis_burn_delta_v(vessel):
   try:
     body = vessel.orbit.body
     mu = body.gravitational_parameter
     body_radius = body.equatorial_radius
-    apoapsis_radius = body_radius + max(TLM.read("apoapsis"), CIRCULARIZATION_TARGET_APOAPSIS)
-    periapsis_radius = body_radius + CIRCULARIZATION_TARGET_PERIAPSIS
-    target_semi_major_axis = (apoapsis_radius + periapsis_radius) / 2
-    target_speed = math.sqrt(mu * ((2 / apoapsis_radius) - (1 / target_semi_major_axis)))
-    current_speed = vessel.orbit.speed
-    return max(0, target_speed - current_speed)
+    apoapsis_radius = body_radius + max(
+      TLM.read("apoapsis"),
+      CIRCULARIZATION_TARGET_APOAPSIS,
+    )
+    current_periapsis_radius = max(
+      1,
+      body_radius + TLM.read("periapsis"),
+    )
+    target_periapsis_radius = body_radius + CIRCULARIZATION_TARGET_PERIAPSIS
+    current_semi_major_axis = (apoapsis_radius + current_periapsis_radius) / 2
+    target_semi_major_axis = (apoapsis_radius + target_periapsis_radius) / 2
+    current_apoapsis_speed = calculate_orbital_speed(
+      mu,
+      apoapsis_radius,
+      current_semi_major_axis,
+    )
+    target_apoapsis_speed = calculate_orbital_speed(
+      mu,
+      apoapsis_radius,
+      target_semi_major_axis,
+    )
+
+    return max(0, target_apoapsis_speed - current_apoapsis_speed)
   except Exception:
     return 0
 
 
-def estimate_circularization_lead_time(vessel):
+def estimate_burn_acceleration(vessel):
   try:
-    acceleration = vessel.available_thrust / max(vessel.mass, 1)
+    return vessel.available_thrust / max(vessel.mass, 1)
   except Exception:
-    acceleration = 0
+    return 0
+
+
+def plan_circularization_burn(vessel):
+  delta_v = calculate_apsis_burn_delta_v(vessel)
+  acceleration = estimate_burn_acceleration(vessel)
 
   if acceleration <= 0:
-    return CIRCULARIZATION_LEAD_TIME
+    burn_time = CIRCULARIZATION_LEAD_TIME * 2
+  else:
+    burn_time = delta_v / acceleration
 
-  burn_time = estimate_circularization_delta_v(vessel) / acceleration
-  return min(55, max(CIRCULARIZATION_LEAD_TIME, (burn_time / 2) + 4))
+  burn_time = min(
+    CIRCULARIZATION_MAX_BURN_TIME,
+    max(CIRCULARIZATION_MIN_BURN_TIME, burn_time),
+  )
+
+  return {
+    "delta_v": delta_v,
+    "acceleration": acceleration,
+    "burn_time": burn_time,
+    "lead_time": (burn_time / 2) + 1,
+  }
 
 
-def configure_suborbital_landing(conn, vessel, guard):
+def configure_suborbital_landing(conn, vessel, guard, dump_stages=False):
   TLM.update("Preparing suborbital landing")
   stop_warp(conn)
   vessel.control.throttle = 0
 
-  while vessel.control.current_stage > 0:
-    guard.check()
-    TLM.update("Dumping remaining stages")
-    vessel.control.activate_next_stage()
-    time.sleep(0.1)
+  if dump_stages:
+    while vessel.control.current_stage > 0:
+      guard.check()
+      vessel.control.throttle = 0
+      TLM.update("Dumping remaining stages")
+      vessel.control.activate_next_stage()
+      time.sleep(0.1)
 
   guard.check(force=True)
   vessel.auto_pilot.engage()
@@ -528,24 +574,58 @@ def warp_through_aerobraking(conn, vessel, guard):
 def launch(conn, vessel, guard):
   guard.check(force=True)
   TLM.update("Pre-flight check")
+  stop_warp(conn)
+  reset_manual_controls(vessel)
+  vessel.auto_pilot.engage()
+  vessel.auto_pilot.target_pitch_and_heading(90, 90)
+  vessel.auto_pilot.target_roll = 0
   vessel.control.sas = False
   vessel.control.rcs = False
-  vessel.control.throttle = 1.0
+
+  record_mission_event(
+    "launch_vertical_alignment_start",
+    "Launch",
+    autopilot_error=read_autopilot_error(vessel),
+  )
+
+  record_mission_event(
+    "launch_vertical_guidance_armed",
+    "Launch",
+    autopilot_error=read_autopilot_error(vessel),
+  )
 
   for status in ("Pre-flight check", "Launching in 3...", "Launching in 2...", "Launching in 1..."):
     TLM.update(status)
     time.sleep(1)
     guard.check(force=True)
 
+  vessel.control.throttle = 1.0
   vessel.control.activate_next_stage()
   guard.check(force=True)
-  vessel.auto_pilot.engage()
-  vessel.auto_pilot.target_pitch_and_heading(90, 90)
-  vessel.auto_pilot.target_roll = 0
 
+  ascent_started_at = time.monotonic()
   while TLM.read("altitude") < LAUNCH_VERTICAL_ASCENT_ALTITUDE:
     guard.check()
     TLM.update("Vertical Ascent")
+
+    if (
+      time.monotonic() - ascent_started_at > LAUNCH_VERTICAL_ASCENT_TIMEOUT or
+      (
+        time.monotonic() - ascent_started_at > 8 and
+        TLM.read("altitude") < LAUNCH_MIN_CLIMB_ALTITUDE
+      )
+    ):
+      vessel.control.throttle = 0
+      record_mission_event(
+        "launch_vertical_ascent_failed",
+        "Launch",
+        altitude=TLM.read("altitude"),
+        vertical_speed=TLM.read("vertical_speed"),
+        apoapsis=TLM.read("apoapsis"),
+        periapsis=TLM.read("periapsis"),
+      )
+      raise MissionAborted("Launch stopped because the vessel did not climb cleanly")
+
     time.sleep(0.1)
 
 
@@ -598,12 +678,14 @@ def circularize(conn, vessel, guard):
   vessel.auto_pilot.target_direction = (0, 1, 0)
   vessel.auto_pilot.target_roll = 0
 
-  circularization_lead_time = estimate_circularization_lead_time(vessel)
+  circularization_plan = plan_circularization_burn(vessel)
   record_mission_event(
     "circularization_plan",
     "Launch",
-    lead_time=circularization_lead_time,
-    estimated_delta_v=estimate_circularization_delta_v(vessel),
+    lead_time=circularization_plan["lead_time"],
+    burn_time=circularization_plan["burn_time"],
+    estimated_delta_v=circularization_plan["delta_v"],
+    acceleration=circularization_plan["acceleration"],
     apoapsis=TLM.read("apoapsis"),
     periapsis=TLM.read("periapsis"),
     alignment_buffer=CIRCULARIZATION_ALIGNMENT_BUFFER,
@@ -611,8 +693,13 @@ def circularize(conn, vessel, guard):
 
   circularization_start_ut = TLM.read("ut") + max(
     0,
-    vessel.orbit.time_to_apoapsis - circularization_lead_time,
+    vessel.orbit.time_to_apoapsis - circularization_plan["lead_time"],
   )
+  circularization_end_ut = (
+    circularization_start_ut +
+    circularization_plan["burn_time"]
+  )
+  circularization_apoapsis_ut = circularization_start_ut + circularization_plan["lead_time"]
   circularization_alignment_ut = max(
     TLM.read("ut"),
     circularization_start_ut - CIRCULARIZATION_ALIGNMENT_BUFFER,
@@ -668,6 +755,7 @@ def circularize(conn, vessel, guard):
     time.sleep(CIRCULARIZATION_BURN_INTERVAL)
 
   guard.check(force=True)
+  soft_trim_recorded = False
 
   while TLM.read("periapsis") < CIRCULARIZATION_TARGET_PERIAPSIS:
     guard.check()
@@ -685,6 +773,8 @@ def circularize(conn, vessel, guard):
       if not wait_for_autopilot_alignment(vessel, guard, "Reacquiring prograde", max_wait=10):
         return False
 
+      vessel.control.throttle = 0
+
     remaining_delta_v = TLM.read_delta_v()
 
     if (
@@ -700,7 +790,58 @@ def circularize(conn, vessel, guard):
       )
       break
 
+    time_remaining = max(0, circularization_end_ut - TLM.read("ut"))
+    periapsis_remaining = max(0, CIRCULARIZATION_TARGET_PERIAPSIS - TLM.read("periapsis"))
+    time_to_apoapsis = TLM.read("time_to_apoapsis")
+
     set_circularization_throttle(vessel)
+
+    if TLM.read("ut") >= circularization_end_ut:
+      if (
+        TLM.read("apoapsis") >= CIRCULARIZATION_HARD_APOAPSIS_LIMIT and
+        TLM.read("periapsis") >= 0
+      ):
+        record_mission_event(
+          "circularization_hard_trim_cutoff",
+          "Launch",
+          apoapsis=TLM.read("apoapsis"),
+          periapsis=TLM.read("periapsis"),
+          time_to_apoapsis=time_to_apoapsis,
+          time_remaining=time_remaining,
+        )
+        break
+
+      vessel.control.throttle = min(vessel.control.throttle, 0.08)
+
+    if (
+      TLM.read("ut") >= circularization_apoapsis_ut and
+      TLM.read("periapsis") >= CIRCULARIZATION_TOURISM_PERIAPSIS
+    ):
+      record_mission_event(
+        "circularization_apoapsis_window_cutoff",
+        "Launch",
+        apoapsis=TLM.read("apoapsis"),
+        periapsis=TLM.read("periapsis"),
+        time_to_apoapsis=time_to_apoapsis,
+        time_remaining=time_remaining,
+      )
+      break
+
+    if (
+      TLM.read("apoapsis") >= CIRCULARIZATION_SOFT_APOAPSIS_LIMIT and
+      periapsis_remaining <= 1500
+    ):
+      vessel.control.throttle = min(vessel.control.throttle, 0.03)
+      if not soft_trim_recorded:
+        soft_trim_recorded = True
+        record_mission_event(
+          "circularization_soft_trim",
+          "Launch",
+          apoapsis=TLM.read("apoapsis"),
+          periapsis=TLM.read("periapsis"),
+          time_to_apoapsis=time_to_apoapsis,
+          time_remaining=time_remaining,
+        )
 
     if TLM.read("apoapsis") >= CIRCULARIZATION_ABORT_APOAPSIS_LIMIT:
       break
@@ -733,6 +874,15 @@ def circularize(conn, vessel, guard):
 
   guard.check(force=True)
   vessel.control.throttle = 0
+  record_mission_event(
+    "circularization_burn_done",
+    "Launch",
+    apoapsis=TLM.read("apoapsis"),
+    periapsis=TLM.read("periapsis"),
+    delta_v=TLM.read_delta_v(),
+    planned_end_ut=circularization_end_ut,
+    actual_ut=TLM.read("ut"),
+  )
 
   return TLM.read("periapsis") >= CIRCULARIZATION_TOURISM_PERIAPSIS
 
