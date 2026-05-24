@@ -1,10 +1,25 @@
 import Panel from "./Panel";
-import KspSketch from "./KspSketch";
+import VisualizationSubpanel from "./visualizations/VisualizationSubpanel";
+import AscentCartesian from "./visualizations/AscentCartesian";
+import AscentPolar from "./visualizations/AscentPolar";
+import VesselStatus from "./visualizations/VesselStatus";
 
 function VisDatPanel({ telemetry }) {
   return (
     <Panel title="Visualized Data">
-      <KspSketch telemetry={telemetry} width={600} height={300} />
+      <div className="visualization-grid">
+        <VisualizationSubpanel title="Vessel Status">
+          <VesselStatus telemetry={telemetry} />
+        </VisualizationSubpanel>
+
+        <VisualizationSubpanel title="Ascent - Cartesian">
+          <AscentCartesian telemetry={telemetry} />
+        </VisualizationSubpanel>
+
+        <VisualizationSubpanel title="Ascent - Polar">
+          <AscentPolar telemetry={telemetry} />
+        </VisualizationSubpanel>
+      </div>
     </Panel>
   );
 }
