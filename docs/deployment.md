@@ -106,6 +106,17 @@ cd /opt/ksp-control-panel/app
 bash deploy/ubuntu/deploy.sh
 ```
 
+If an existing server was bootstrapped before `/jrti/` proxy support was added,
+install the current system templates once:
+
+```bash
+sudo install -m 0755 /opt/ksp-control-panel/app/deploy/ubuntu/install-system-config.sh /usr/local/sbin/ksp-control-panel-install-system-config
+sudo /usr/local/sbin/ksp-control-panel-install-system-config
+```
+
+After that, normal `git push prod main` deploys will apply Nginx/systemd template
+changes automatically.
+
 ## Health Checks
 
 Backend:

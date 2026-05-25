@@ -42,20 +42,12 @@ if [[ ! -f "$ENV_FILE" ]]; then
   install -m 0644 "$SCRIPT_DIR/env.example" "$ENV_FILE"
 fi
 
-install -m 0644 "$SCRIPT_DIR/ksp-backend.service" /etc/systemd/system/ksp-backend.service
-install -m 0644 "$SCRIPT_DIR/ksp-control-panel.nginx" /etc/nginx/sites-available/ksp-control-panel
-ln -sfn /etc/nginx/sites-available/ksp-control-panel /etc/nginx/sites-enabled/ksp-control-panel
-rm -f /etc/nginx/sites-enabled/default
+install -m 0755 "$SCRIPT_DIR/install-system-config.sh" /usr/local/sbin/ksp-control-panel-install-system-config
 
 cat >/etc/sudoers.d/ksp-control-panel-deploy <<EOF
-$DEPLOY_USER ALL=(root) NOPASSWD: /bin/systemctl restart ksp-backend, /bin/systemctl reload nginx, /usr/bin/systemctl restart ksp-backend, /usr/bin/systemctl reload nginx, /usr/sbin/nginx -t
+$DEPLOY_USER ALL=(root) NOPASSWD: /usr/local/sbin/ksp-control-panel-install-system-config, /bin/systemctl restart ksp-backend, /bin/systemctl reload nginx, /usr/bin/systemctl restart ksp-backend, /usr/bin/systemctl reload nginx, /usr/sbin/nginx -t
 EOF
 chmod 0440 /etc/sudoers.d/ksp-control-panel-deploy
-
-systemctl daemon-reload
-systemctl enable ksp-backend
-nginx -t
-systemctl reload nginx || systemctl restart nginx
 
 if [[ -d "$REPO_DIR/.git" ]]; then
   rsync -a --delete \
@@ -65,6 +57,7 @@ if [[ -d "$REPO_DIR/.git" ]]; then
     --exclude __pycache__ \
     "$REPO_DIR/" "$APP_DIR/"
   chown -R "$DEPLOY_USER:$DEPLOY_USER" "$APP_ROOT"
+  ksp-control-panel-install-system-config
   sudo -u "$DEPLOY_USER" bash "$APP_DIR/deploy/ubuntu/deploy.sh"
 fi
 

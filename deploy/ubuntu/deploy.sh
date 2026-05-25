@@ -24,6 +24,10 @@ else
 fi
 npm run build
 
+if command -v ksp-control-panel-install-system-config >/dev/null 2>&1; then
+  sudo ksp-control-panel-install-system-config
+fi
+
 sudo systemctl restart "$BACKEND_SERVICE"
 sudo nginx -t
 sudo systemctl reload nginx
