@@ -107,6 +107,7 @@ From Git Bash in the project root on your development machine:
 bash scripts/prod status    # health summary plus backend service status
 bash scripts/prod health    # short API health summary only
 bash scripts/prod mission   # mission event trail without server logs
+bash scripts/prod bench     # kRPC timing benchmark while no mission is active
 bash scripts/prod logs      # follow backend logs
 bash scripts/prod restart   # restart backend
 bash scripts/prod down      # stop backend

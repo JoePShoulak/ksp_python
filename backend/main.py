@@ -4,13 +4,17 @@ import threading
 import time
 
 from flask import Flask, jsonify, request  # type: ignore
+import krpc # type: ignore
 
 from krpc_utils import (
   close_connection,
   get_connection_ledger,
+  get_krpc_connection_config,
+  remember_connection,
   safe_connect,
   safe_value,
   stop_warp,
+  vessel_is_readable,
 )
 from mission_state import (
   MissionAborted,
@@ -77,6 +81,16 @@ def build_telemetry_response(snapshot, vessel_check):
     "telemetry_error": LAST_TELEMETRY_ERROR,
     **get_cached_vessel_state(),
   })
+
+
+def timed_debug_step(label, callback):
+  started_at = time.monotonic()
+  value = callback()
+
+  return value, {
+    "label": label,
+    "seconds": time.monotonic() - started_at,
+  }
 
 
 def action_is_starting_or_running():
@@ -361,6 +375,122 @@ def mission_status():
     "ok": True,
     "mission": mission,
   })
+
+
+@app.route("/api/debug/krpc-benchmark", methods=["GET"])
+def krpc_benchmark():
+  mission = get_registered_mission()
+
+  with ACTION_LOCK:
+    action = ACTIVE_ACTION
+
+  if mission or action:
+    return jsonify({
+      "ok": False,
+      "error": "Benchmark skipped while a mission is active",
+      "mission_active": bool(mission),
+      "action": action,
+    }), 409
+
+  if not KRPC_QUERY_LOCK.acquire(blocking=False):
+    return jsonify({
+      "ok": False,
+      "error": "Benchmark skipped because kRPC is busy",
+    }), 409
+
+  conn = None
+  steps = []
+
+  try:
+    conn, step = timed_debug_step(
+      "connect",
+      lambda: krpc.connect(name="Benchmark", **get_krpc_connection_config()),
+    )
+    steps.append(step)
+    remember_connection(conn, "Benchmark")
+
+    vessel, step = timed_debug_step(
+      "active_vessel",
+      lambda: conn.space_center.active_vessel,
+    )
+    steps.append(step)
+
+    readable, step = timed_debug_step(
+      "vessel_readable",
+      lambda: vessel_is_readable(vessel),
+    )
+    steps.append(step)
+
+    if not vessel or not readable:
+      return jsonify({
+        "ok": False,
+        "error": "No readable active vessel",
+        "steps": steps,
+      }), 409
+
+    flight, step = timed_debug_step(
+      "flight_reference",
+      lambda: vessel.flight(vessel.orbit.body.reference_frame),
+    )
+    steps.append(step)
+
+    streams, step = timed_debug_step(
+      "attach_streams",
+      lambda: [
+        conn.add_stream(getattr, flight, "mean_altitude"),
+        conn.add_stream(getattr, flight, "vertical_speed"),
+        conn.add_stream(getattr, flight, "speed"),
+        conn.add_stream(getattr, vessel.orbit, "apoapsis_altitude"),
+        conn.add_stream(getattr, vessel.orbit, "time_to_apoapsis"),
+        conn.add_stream(getattr, vessel, "met"),
+      ],
+    )
+    steps.append(step)
+
+    _, step = timed_debug_step(
+      "read_streams",
+      lambda: [stream() for stream in streams],
+    )
+    steps.append(step)
+
+    _, step = timed_debug_step(
+      "read_control",
+      lambda: {
+        "stage": vessel.control.current_stage,
+        "throttle": vessel.control.throttle,
+        "available_thrust": vessel.available_thrust,
+      },
+    )
+    steps.append(step)
+
+    _, step = timed_debug_step(
+      "read_autopilot",
+      lambda: safe_value(lambda: vessel.auto_pilot.error),
+    )
+    steps.append(step)
+
+    _, step = timed_debug_step(
+      "read_parts_summary",
+      lambda: {
+        "parts": len(safe_value(lambda: list(vessel.parts.all), [])),
+        "engines": len(safe_value(lambda: list(vessel.parts.engines), [])),
+        "resources": len(safe_value(lambda: list(vessel.resources.names), [])),
+      },
+    )
+    steps.append(step)
+
+    return jsonify({
+      "ok": True,
+      "steps": steps,
+      "total_seconds": sum(step["seconds"] for step in steps),
+      "krpc_config": get_krpc_connection_config(),
+      "vessel_name": safe_value(lambda: vessel.name),
+    })
+  finally:
+    if conn:
+      close_connection(conn, stop_warp_first=False)
+
+    KRPC_QUERY_LOCK.release()
 
 
 @app.route("/api/actions/launch_rocket", methods=["POST"])
