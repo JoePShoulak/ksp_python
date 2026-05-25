@@ -12,6 +12,7 @@ function ActionButton({ action, activeActionId, isLoading, missionActive, onRunA
       aria-busy={isActive}>
       <span>{action.label}</span>
       {isActive && <span className="action-state">Running</span>}
+      {!isActive && isDisabled && <span className="action-state">Locked</span>}
     </button>
   );
 }

@@ -33,6 +33,8 @@ LAST_ACTION_ERROR = None
 VIEWPORT_REPORTS = {}
 VIEWPORT_LOCK = threading.Lock()
 STARTED_AT = time.time()
+LAST_TELEMETRY_CAPTURED_AT = 0
+TELEMETRY_CACHE_TTL = 0.5
 
 
 def log_backend_lifecycle(message):
@@ -44,12 +46,24 @@ atexit.register(lambda: log_backend_lifecycle("exiting"))
 
 def get_cached_vessel_state():
   snapshot = TLM.get_snapshot()
+  cache_age = time.time() - LAST_TELEMETRY_CAPTURED_AT if LAST_TELEMETRY_CAPTURED_AT else None
 
   return {
     "has_cached_telemetry": bool(snapshot),
     "telemetry_initialized": TLM.is_initialized(),
     "cached_vessel_name": snapshot.get("vessel_name"),
+    "telemetry_cache_age": cache_age,
   }
+
+
+def build_telemetry_response(snapshot, vessel_check):
+  return jsonify({
+    "ok": True,
+    "has_vessel": bool(snapshot),
+    "telemetry": snapshot if snapshot else None,
+    "vessel_check": vessel_check,
+    **get_cached_vessel_state(),
+  })
 
 
 def run_action_thread(action, callback):
@@ -322,6 +336,8 @@ def revert_to_launch_route():
 
 @app.route("/api/telemetry", methods=["GET"])
 def get_telemetry():
+  global LAST_TELEMETRY_CAPTURED_AT
+
   snapshot = TLM.get_snapshot()
   mission = get_registered_mission()
 
@@ -329,24 +345,11 @@ def get_telemetry():
     if not mission:
       snapshot["status"] = "Idle"
 
-    return jsonify({
-      "ok": True,
-      "has_vessel": True,
-      "telemetry": snapshot,
-      "vessel_check": "cached",
-      **get_cached_vessel_state(),
-    })
+    if time.time() - LAST_TELEMETRY_CAPTURED_AT < TELEMETRY_CACHE_TTL:
+      return build_telemetry_response(snapshot, "cached")
 
   if not KRPC_QUERY_LOCK.acquire(blocking=False):
-    cached_state = get_cached_vessel_state()
-
-    return jsonify({
-      "ok": True,
-      "has_vessel": cached_state["has_cached_telemetry"],
-      "telemetry": snapshot if snapshot else None,
-      "vessel_check": "busy",
-      **cached_state,
-    })
+    return build_telemetry_response(snapshot, "busy")
 
   try:
     conn, vessel = safe_connect("Telemetry")
@@ -355,25 +358,17 @@ def get_telemetry():
       abort_active_mission_if_stale(vessel if conn else None)
 
     if not conn or not vessel:
-      return jsonify({
-        "ok": True,
-        "has_vessel": False,
-        "telemetry": None,
-      })
+      return build_telemetry_response(snapshot, "unavailable")
 
     try:
       snapshot = TLM.capture(conn, vessel, "Idle")
+      LAST_TELEMETRY_CAPTURED_AT = time.time()
     finally:
       close_connection(conn, stop_warp_first=False)
   finally:
     KRPC_QUERY_LOCK.release()
 
-  return jsonify({
-    "ok": True,
-    "has_vessel": True,
-    "telemetry": snapshot,
-    "vessel_check": "fresh",
-  })
+  return build_telemetry_response(snapshot, "fresh")
 
 
 # HANDLERS

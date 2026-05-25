@@ -26,6 +26,12 @@ const IDLE_POLL_INTERVAL_MS = 750;
 const MISSION_STATUS_INTERVAL_MS = 1500;
 const BACKEND_HEALTH_INTERVAL_MS = 5000;
 const API_RECENT_SUCCESS_MS = 15000;
+const MISSION_PHASE_ACTIONS = {
+  Launch: "launch_rocket",
+  Land: "land_rocket",
+  Wait: "wait_one_hour",
+  lko_tourism: "lko_tourism",
+};
 
 function App() {
   const [telemetry, setTelemetry] = useState(null);
@@ -247,7 +253,7 @@ function App() {
       const actionHasSettled = Date.now() - activeActionStartedAtRef.current > 750;
       const resetSequence = data.mission?.visual_reset_sequence;
       const isMissionActive = Boolean(data.mission?.active);
-      const missionActionId = data.mission?.action ?? null;
+      const missionActionId = getMissionActionId(data.mission);
       const missionError = data.mission?.last_error ?? null;
 
       markApiSuccess();
@@ -263,7 +269,7 @@ function App() {
         setActionError(missionError);
       }
 
-      if (isMissionActive && missionActionId) {
+      if (isMissionActive) {
         setActiveActionId(missionActionId);
       }
 
@@ -412,3 +418,15 @@ function App() {
 }
 
 export default App;
+
+function getMissionActionId(mission) {
+  if (!mission) {
+    return null;
+  }
+
+  if (mission.action) {
+    return mission.action;
+  }
+
+  return MISSION_PHASE_ACTIONS[mission.phase] ?? null;
+}
