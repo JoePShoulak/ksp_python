@@ -34,6 +34,9 @@ def record_mission_event(event, phase=None, **details):
     MISSION_EVENTS.append(entry)
     del MISSION_EVENTS[:-MISSION_EVENT_LIMIT]
 
+  detail_text = f" {details}" if details else ""
+  print(f"[mission] {phase or '-'} {event}{detail_text}", flush=True)
+
 
 def get_mission_events():
   with ACTIVE_MISSION_LOCK:

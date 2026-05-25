@@ -22,6 +22,7 @@ function App() {
   const [connectionState, setConnectionState] = useState("connecting");
   const [activeActionId, setActiveActionId] = useState(null);
   const [missionActive, setMissionActive] = useState(false);
+  const [actionError, setActionError] = useState(null);
   const [visualResetKey, setVisualResetKey] = useState(0);
   const hasVesselRef = useRef(hasVessel);
   const activeActionIdRef = useRef(activeActionId);
@@ -139,8 +140,13 @@ function App() {
       const resetSequence = data.mission?.visual_reset_sequence;
       const isMissionActive = Boolean(data.mission?.active);
       const missionActionId = data.mission?.action ?? null;
+      const missionError = data.mission?.last_error ?? null;
 
       setMissionActive(isMissionActive);
+
+      if (missionError) {
+        setActionError(missionError);
+      }
 
       if (isMissionActive && missionActionId) {
         setActiveActionId(missionActionId);
@@ -165,12 +171,15 @@ function App() {
 
   async function handleRunAction(actionId) {
     setActiveActionId(actionId);
+    setActionError(null);
     activeActionStartedAtRef.current = Date.now();
+    await new Promise(resolve => window.requestAnimationFrame(resolve));
 
     try {
       await runKspAction(actionId);
       await pollTelemetry();
-    } catch {
+    } catch (error) {
+      setActionError(error.message || "Mission request failed");
       await pollTelemetry();
     } finally {
       await pollMissionStatus();
@@ -189,6 +198,7 @@ function App() {
     } finally {
       setActiveActionId(null);
       setMissionActive(false);
+      setActionError(null);
       await pollMissionStatus();
       await pollTelemetry();
     }
@@ -245,6 +255,7 @@ function App() {
           activeActionId={activeActionId}
           connectionState={connectionState}
           isLoading={isActionRunning}
+          actionError={actionError}
           missionActive={missionActive}
           onAbortAction={handleAbortAction}
           onRunAction={handleRunAction}
@@ -253,6 +264,7 @@ function App() {
         <MissionTelemetryPanel
           telemetry={telemetry}
           hasVessel={hasVessel}
+          cameraPaused={isActionRunning}
           missionActive={missionActive}
           visualResetKey={visualResetKey}
         />

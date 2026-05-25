@@ -28,6 +28,7 @@ function IdleTelemetryPanel() {
 function MissionTelemetryPanel({
   telemetry,
   hasVessel,
+  cameraPaused,
   missionActive,
   visualResetKey,
 }) {
@@ -50,7 +51,7 @@ function MissionTelemetryPanel({
 
         {hasCameras && (
           <VisualizationSubpanel title="Camera Feed" variant="camera">
-            <CameraStream cameras={telemetry.cameras} />
+            <CameraStream cameras={telemetry.cameras} paused={cameraPaused} />
           </VisualizationSubpanel>
         )}
 

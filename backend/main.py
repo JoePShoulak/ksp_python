@@ -46,8 +46,9 @@ def run_action_thread(action, callback):
   try:
     record_mission_event("action_thread_start", action)
     callback()
-  except MissionAborted:
-    record_mission_event("action_aborted", action)
+  except MissionAborted as error:
+    LAST_ACTION_ERROR = str(error)
+    record_mission_event("action_aborted", action, error=LAST_ACTION_ERROR)
     pass
   except Exception as error:
     if not is_vessel_lost_error(error):
@@ -139,7 +140,10 @@ def viewports():
 def status():
   with KRPC_QUERY_LOCK:
     conn, vessel = safe_connect("Status")
-    abort_active_mission_if_stale(vessel if conn else None)
+
+    if not get_registered_mission():
+      abort_active_mission_if_stale(vessel if conn else None)
+
     has_vessel = bool(conn and vessel)
 
     if conn:
@@ -286,7 +290,9 @@ def get_telemetry():
 
   with KRPC_QUERY_LOCK:
     conn, vessel = safe_connect("Telemetry")
-    abort_active_mission_if_stale(vessel if conn else None)
+
+    if not get_registered_mission():
+      abort_active_mission_if_stale(vessel if conn else None)
 
     if not conn or not vessel:
       return jsonify({

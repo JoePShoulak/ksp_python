@@ -38,6 +38,7 @@ function MissionPanelTitle({ connectionState }) {
 function ActionsPanel({
   actions,
   activeActionId,
+  actionError,
   connectionState,
   isLoading,
   missionActive,
@@ -77,6 +78,12 @@ function ActionsPanel({
                 />
               ))}
             </div>
+          )}
+
+          {actionError && (
+            <p className="action-error" role="status">
+              {actionError}
+            </p>
           )}
         </div>
       </Panel>

@@ -11,7 +11,39 @@ function isHtmlResponse(text) {
 }
 
 async function fetchJson(url, options = {}) {
-  const response = await fetch(url, options);
+  const timeoutMs = options.timeoutMs ?? 10000;
+  const controller = options.signal ? null : new AbortController();
+  let timeoutId = null;
+
+  if (controller && timeoutMs > 0) {
+    timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
+  }
+
+  const fetchOptions = {
+    ...options,
+    signal: options.signal ?? controller?.signal,
+  };
+
+  delete fetchOptions.timeoutMs;
+
+  let response;
+
+  try {
+    response = await fetch(url, fetchOptions);
+  } catch (error) {
+    if (error.name === "AbortError") {
+      throw new ApiError("Request timed out", {
+        lowSignal: url.startsWith("/api/actions/"),
+      });
+    }
+
+    throw error;
+  } finally {
+    if (timeoutId) {
+      window.clearTimeout(timeoutId);
+    }
+  }
+
   const text = await response.text();
   const isActionRequest = url.startsWith("/api/actions/");
 
@@ -40,6 +72,7 @@ async function fetchJson(url, options = {}) {
 export async function runKspAction(actionId) {
   return fetchJson(`/api/actions/${actionId}`, {
     method: "POST",
+    timeoutMs: 8000,
   });
 }
 

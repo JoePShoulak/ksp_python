@@ -88,6 +88,18 @@
   text-transform: uppercase;
 }
 
+.action-error {
+  margin: 0;
+  border: 1px solid rgba(255, 104, 104, 0.55);
+  border-radius: var(--radius-sm);
+  padding: 0.7rem 0.75rem;
+  background: rgba(73, 22, 27, 0.64);
+  color: #ffd7d7;
+  font-size: 0.78rem;
+  font-weight: 800;
+  line-height: 1.35;
+}
+
 .abort-button {
   width: 100%;
   min-height: 3.4rem;
@@ -197,6 +209,10 @@
 
 .camera-placeholder span {
   font-size: 0.8rem;
+}
+
+.camera-placeholder.camera-paused {
+  border-color: rgba(125, 216, 125, 0.35);
 }
 
 /* Idle state */

@@ -34,6 +34,11 @@ def get_scene_name(conn):
 
 def get_vessel_identifier(vessel):
   try:
+    return vessel.name
+  except Exception:
+    pass
+
+  try:
     return vessel.id
   except Exception:
     return None
