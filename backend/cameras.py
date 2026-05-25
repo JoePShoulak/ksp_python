@@ -1,7 +1,6 @@
 import os
 
 from config import load_env_file
-from krpc_utils import safe_value
 
 load_env_file()
 
@@ -12,8 +11,16 @@ CAMERA_MODULE_PATTERNS = (
   "externalcameraselector",
 )
 
-CAMERA_STREAM_URL = os.environ.get("KSP_CAMERA_STREAM_URL", "")
+DEFAULT_CAMERA_STREAM_URL = f"http://{os.environ.get('KRPC_ADDRESS', '192.168.20.104')}:8080/"
+CAMERA_STREAM_URL = os.environ.get("KSP_CAMERA_STREAM_URL") or DEFAULT_CAMERA_STREAM_URL
 CAMERA_STREAM_KIND = os.environ.get("KSP_CAMERA_STREAM_KIND", "image")
+
+
+def safe_value(getter, fallback=None):
+  try:
+    return getter()
+  except Exception:
+    return fallback
 
 
 def normalize_stream_url(url):
@@ -75,6 +82,26 @@ def get_camera_stream_url(camera):
   return normalize_stream_url(stream_url)
 
 
+def get_configured_stream_camera():
+  if not CAMERA_STREAM_URL:
+    return None
+
+  camera = {
+    "id": "jrti-stream",
+    "index": 0,
+    "part_name": "jrti-stream",
+    "label": "JRTI Stream",
+    "modules": [],
+    "source": "configured_stream",
+  }
+
+  return {
+    **camera,
+    "stream_url": get_camera_stream_url(camera),
+    "stream_kind": CAMERA_STREAM_KIND,
+  }
+
+
 def get_camera_snapshot(vessel):
   cameras = []
 
@@ -111,11 +138,14 @@ def get_camera_snapshot(vessel):
       "stream_url": get_camera_stream_url(selected_camera),
       "stream_kind": CAMERA_STREAM_KIND,
     }
+  else:
+    selected_camera = get_configured_stream_camera()
 
   return {
-    "available": len(cameras) > 0,
+    "available": bool(cameras or selected_camera),
     "count": len(cameras),
     "selected_index": 0 if cameras else None,
     "selected": selected_camera,
+    "stream_configured": bool(CAMERA_STREAM_URL),
     "cameras": cameras,
   }

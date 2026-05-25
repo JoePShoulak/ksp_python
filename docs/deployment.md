@@ -65,6 +65,13 @@ KRPC_RPC_PORT=50000
 KRPC_STREAM_PORT=50001
 ```
 
+Expected JRTI values if the stream is hosted on the KSP machine:
+
+```bash
+KSP_CAMERA_STREAM_URL=http://192.168.20.104:8080/
+KSP_CAMERA_STREAM_KIND=iframe
+```
+
 ## SSH Deploy User
 
 The push-to-deploy remote expects SSH access as the `ksp` user. Add your public
