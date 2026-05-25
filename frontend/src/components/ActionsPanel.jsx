@@ -1,18 +1,25 @@
 import Panel from "./Panel";
 
-function ActionButton({ action, activeActionId, isLoading, missionActive, onRunAction }) {
+function ActionButton({
+  action,
+  activeActionId,
+  missionLocked,
+  pendingActionId,
+  onRunAction,
+}) {
   const isActive = action.id === activeActionId;
-  const isDisabled = isLoading || missionActive;
+  const isPending = action.id === pendingActionId;
+  const isDisabled = Boolean(pendingActionId) || missionLocked;
 
   return (
     <button
       className={`action-button ${isActive ? "is-running" : ""}`}
       onClick={() => onRunAction(action.id)}
       disabled={isDisabled}
-      aria-busy={isActive}>
+      aria-busy={isActive || isPending}>
       <span>{action.label}</span>
+      {isPending && <span className="action-state">Starting</span>}
       {isActive && <span className="action-state">Running</span>}
-      {!isActive && isDisabled && <span className="action-state">Locked</span>}
     </button>
   );
 }
@@ -113,13 +120,14 @@ function ActionsPanel({
   actionError,
   backendHealth,
   connectionState,
-  isLoading,
   missionActive,
+  pendingActionId,
   onAbortAction,
   onRunAction,
 }) {
   const missionSteps = actions.filter(action => action.section !== "sequence");
   const sequences = actions.filter(action => action.section === "sequence");
+  const missionLocked = missionActive || Boolean(activeActionId);
   const showBackendDebug = false;
 
   return (
@@ -132,8 +140,8 @@ function ActionsPanel({
                 key={action.id}
                 action={action}
                 activeActionId={activeActionId}
-                isLoading={isLoading}
-                missionActive={missionActive}
+                missionLocked={missionLocked}
+                pendingActionId={pendingActionId}
                 onRunAction={onRunAction}
               />
             ))}
@@ -146,8 +154,8 @@ function ActionsPanel({
                   key={action.id}
                   action={action}
                   activeActionId={activeActionId}
-                  isLoading={isLoading}
-                  missionActive={missionActive}
+                  missionLocked={missionLocked}
+                  pendingActionId={pendingActionId}
                   onRunAction={onRunAction}
                 />
               ))}
@@ -173,9 +181,8 @@ function ActionsPanel({
         <button
           className="abort-button"
           type="button"
-          onClick={onAbortAction}
-          disabled={connectionState !== "live"}>
-          Abort Vessel
+          onClick={onAbortAction}>
+          Abort Mission
         </button>
       </Panel>
     </div>

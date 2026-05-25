@@ -60,8 +60,7 @@ function App() {
   const healthFailureCountRef = useRef(0);
   const lastApiSuccessAtRef = useRef(0);
   const vesselLostCountRef = useRef(0);
-
-  const isActionRunning = activeActionId !== null || missionActive;
+  const [pendingActionId, setPendingActionId] = useState(null);
 
   useEffect(() => {
     hasVesselRef.current = hasVessel;
@@ -254,6 +253,7 @@ function App() {
       const resetSequence = data.mission?.visual_reset_sequence;
       const isMissionActive = Boolean(data.mission?.active);
       const missionActionId = getMissionActionId(data.mission);
+      const isMissionOrActionActive = isMissionActive || Boolean(missionActionId);
       const missionError = data.mission?.last_error ?? null;
 
       markApiSuccess();
@@ -263,13 +263,13 @@ function App() {
         checkedAt: currentHealth.checkedAt ?? Date.now(),
         error: null,
       }));
-      setMissionActive(isMissionActive);
+      setMissionActive(isMissionOrActionActive);
 
       if (missionError) {
         setActionError(missionError);
       }
 
-      if (isMissionActive) {
+      if (missionActionId) {
         setActiveActionId(missionActionId);
       }
 
@@ -281,7 +281,7 @@ function App() {
         setVisualResetKey(resetSequence);
       }
 
-      if (activeActionIdRef.current && actionHasSettled && !isMissionActive) {
+      if (activeActionIdRef.current && actionHasSettled && !isMissionOrActionActive) {
         setActiveActionId(null);
       }
     } catch {
@@ -294,6 +294,11 @@ function App() {
   async function handleRunAction(actionId) {
     const previousActionId = activeActionIdRef.current;
 
+    if (pendingActionId || activeActionIdRef.current || missionActiveRef.current) {
+      return;
+    }
+
+    setPendingActionId(actionId);
     setActionError(null);
     activeActionStartedAtRef.current = Date.now();
     await new Promise(resolve => window.requestAnimationFrame(resolve));
@@ -305,6 +310,7 @@ function App() {
     } catch (error) {
       setActionError(error.message || "Mission request failed");
       setActiveActionId(previousActionId);
+      setPendingActionId(null);
       return;
     }
 
@@ -325,17 +331,32 @@ function App() {
     if (actionHasSettled && !activeActionIdRef.current) {
       setActiveActionId(null);
     }
+
+    setPendingActionId(null);
   }
 
   async function handleAbortAction() {
+    setPendingActionId(null);
+    setActiveActionId(null);
+    setMissionActive(false);
+    setActionError(null);
+
     try {
       await abortKspAction();
-    } finally {
-      setActiveActionId(null);
-      setMissionActive(false);
-      setActionError(null);
+    } catch (error) {
+      setActionError(error.message || "Abort request failed");
+    }
+
+    try {
       await pollMissionStatus();
+    } catch {
+      // The abort request was sent; the normal poll loop will retry status.
+    }
+
+    try {
       await pollTelemetry();
+    } catch {
+      // The abort request was sent; the normal poll loop will retry telemetry.
     }
   }
 
@@ -412,7 +433,7 @@ function App() {
           activeActionId={activeActionId}
           connectionState={connectionState}
           backendHealth={backendHealth}
-          isLoading={isActionRunning}
+          pendingActionId={pendingActionId}
           actionError={actionError}
           missionActive={missionActive}
           onAbortAction={handleAbortAction}

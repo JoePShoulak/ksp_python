@@ -3,13 +3,15 @@ import react from "@vitejs/plugin-react";
 
 const JRTI_TARGET = "http://192.168.20.104:8080";
 const JRTI_SNAPSHOT_REFRESH_MS = 500;
+const API_TARGET = globalThis.process?.env?.KSP_API_TARGET || "http://127.0.0.1:5002";
 
 export default defineConfig({
   plugins: [react(), jrtiProxyOverride()],
   server: {
+    host: "0.0.0.0",
     proxy: {
       "/api": {
-        target: "http://127.0.0.1:5000",
+        target: API_TARGET,
         changeOrigin: true,
       },
       "/jrti": {
@@ -72,12 +74,15 @@ function patchJrtiDashboard(source) {
     }
 
     body {
+      margin: 0 !important;
       padding: 0 !important;
+      background: #0f151b !important;
+      overflow: auto !important;
     }
 
     *::-webkit-scrollbar {
-      width: 6px;
-      height: 6px;
+      width: 5px;
+      height: 5px;
     }
 
     *::-webkit-scrollbar-track {
@@ -86,65 +91,84 @@ function patchJrtiDashboard(source) {
 
     *::-webkit-scrollbar-thumb {
       border-radius: 999px;
-      background: rgba(148, 162, 181, 0.42);
+      background: rgba(148, 162, 181, 0.36);
     }
 
     *::-webkit-scrollbar-thumb:hover {
       background: rgba(185, 196, 210, 0.62);
     }
 
-    header {
+    header,
+    nav,
+    footer,
+    form,
+    button,
+    #controls,
+    #settings,
+    #recordings,
+    #error,
+    #empty,
+    #cameras-offline,
+    [data-section="recordings"],
+    [data-section="settings"] {
       display: none !important;
     }
 
-    #cameras-live,
-    #cameras-offline {
-      gap: 1rem !important;
+    main,
+    #app,
+    #root {
+      margin: 0 !important;
+      padding: 0 !important;
+      max-width: none !important;
+      background: transparent !important;
     }
 
-    #error:empty,
-    #empty:empty {
-      display: none !important;
+    #cameras-live {
+      display: grid !important;
+      grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr)) !important;
+      gap: 0.9rem !important;
+      margin: 0 !important;
+      padding: 0.65rem !important;
+    }
+
+    .camera-card,
+    camera-card {
+      border-radius: 8px !important;
+      border-color: rgba(148, 162, 181, 0.22) !important;
+      background: #111820 !important;
+      min-height: 17rem !important;
+    }
+
+    .camera-card video,
+    .camera-card img,
+    camera-card video,
+    camera-card img {
+      border-radius: 6px !important;
+      min-height: 10rem !important;
+      object-fit: cover !important;
+    }
+
+    @media (min-width: 1100px) {
+      #cameras-live {
+        grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr)) !important;
+      }
+
+      .camera-card,
+      camera-card {
+        min-height: 18.5rem !important;
+      }
+
+      .camera-card video,
+      .camera-card img,
+      camera-card video,
+      camera-card img {
+        min-height: 11.5rem !important;
+      }
     }
   </style>
 </head>`,
     )
     .replace(/<h1>Just Read The Instructions<\/h1>/g, "<h1 hidden></h1>");
-}
-
-function patchJrtiCameras(cameras) {
-  return cameras.map(camera => ({
-    ...camera,
-    viewerCount: camera.streaming ? Math.max(1, Number(camera.viewerCount) || 0) : camera.viewerCount,
-  }));
-}
-
-function patchJrtiCameraCard(source) {
-  return source
-    .replace(
-      "this._snapshot.start();",
-      "this._snapshot.start();\n        if (this.streaming) this._startLivePreview();",
-    )
-    .replace(
-      "if (nameEl) nameEl.textContent = this.name;\n\n        const newViewerCount",
-      "if (nameEl) nameEl.textContent = this.name;\n\n        if (this.streaming && !this.recorder?.isActive) this._startLivePreview();\n        else if (!this.streaming) this._stopLivePreview();\n\n        const newViewerCount",
-    )
-    .replace(
-      "if (this._viewerCount > 0) {\n                    statusEl.textContent = 'Watching';\n                    this._startLivePreview();\n                } else {",
-      "if (this.streaming || this._viewerCount > 0) {\n                    statusEl.textContent = this._viewerCount > 0 ? 'Watching' : 'Live';\n                    this._startLivePreview();\n                } else {",
-    )
-    .replace(
-      "if (this._viewerCount > 0 && !recActive) {",
-      "if ((this.streaming || this._viewerCount > 0) && !recActive) {",
-    )
-    .replace(
-      "} else if (this._viewerCount === 0) {",
-      "} else if (!this.streaming && this._viewerCount === 0) {",
-    )
-    .replace(
-      "if (statusEl) statusEl.textContent = this._viewerCount > 0 ? 'Watching' : 'Idle';",
-      "if (statusEl) statusEl.textContent = this._viewerCount > 0 ? 'Watching' : (this.streaming ? 'Live' : 'Idle');",
-    );
 }
 
 function jrtiProxyOverride() {
@@ -173,23 +197,6 @@ function jrtiProxyOverride() {
         }
       });
 
-      server.middlewares.use("/cameras", async (_request, response, next) => {
-        try {
-          const jrtiResponse = await fetch(`${JRTI_TARGET}/cameras`);
-
-          if (!jrtiResponse.ok) {
-            next();
-            return;
-          }
-
-          response.setHeader("content-type", "application/json; charset=utf-8");
-          response.setHeader("cache-control", "no-store");
-          response.end(JSON.stringify(patchJrtiCameras(await jrtiResponse.json())));
-        } catch {
-          next();
-        }
-      });
-
       server.middlewares.use("/js/config.js", async (_request, response, next) => {
         try {
           const jrtiResponse = await fetch(`${JRTI_TARGET}/js/config.js`);
@@ -207,22 +214,6 @@ function jrtiProxyOverride() {
         }
       });
 
-      server.middlewares.use("/js/camera-card.js", async (_request, response, next) => {
-        try {
-          const jrtiResponse = await fetch(`${JRTI_TARGET}/js/camera-card.js`);
-
-          if (!jrtiResponse.ok) {
-            next();
-            return;
-          }
-
-          response.setHeader("content-type", "application/javascript; charset=utf-8");
-          response.setHeader("cache-control", "no-store");
-          response.end(patchJrtiCameraCard(await jrtiResponse.text()));
-        } catch {
-          next();
-        }
-      });
     },
   };
 }

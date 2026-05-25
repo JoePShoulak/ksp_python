@@ -5,7 +5,13 @@ import time
 
 from flask import Flask, jsonify, request  # type: ignore
 
-from krpc_utils import close_connection, safe_connect, safe_value, stop_warp
+from krpc_utils import (
+  close_connection,
+  get_connection_ledger,
+  safe_connect,
+  safe_value,
+  stop_warp,
+)
 from mission_state import (
   MissionAborted,
   abort_active_mission,
@@ -30,6 +36,7 @@ ACTION_LOCK = threading.Lock()
 ACTION_THREAD = None
 ACTIVE_ACTION = None
 LAST_ACTION_ERROR = None
+ACTION_ABORT_SEQUENCE = 0
 VIEWPORT_REPORTS = {}
 VIEWPORT_LOCK = threading.Lock()
 STARTED_AT = time.time()
@@ -73,7 +80,7 @@ def build_telemetry_response(snapshot, vessel_check):
 
 def action_is_starting_or_running():
   with ACTION_LOCK:
-    return bool(ACTIVE_ACTION or (ACTION_THREAD and ACTION_THREAD.is_alive()))
+    return bool(ACTIVE_ACTION)
 
 
 def telemetry_stream_loop():
@@ -135,11 +142,19 @@ def ensure_telemetry_stream_started():
   thread.start()
 
 
-def run_action_thread(action, callback):
+def run_action_thread(action, callback, abort_sequence):
   global ACTIVE_ACTION, LAST_ACTION_ERROR
 
   try:
     record_mission_event("action_thread_start", action)
+
+    with ACTION_LOCK:
+      action_was_aborted = abort_sequence != ACTION_ABORT_SEQUENCE or ACTIVE_ACTION != action
+
+    if action_was_aborted:
+      record_mission_event("action_start_cancelled", action)
+      return
+
     callback()
   except MissionAborted as error:
     LAST_ACTION_ERROR = str(error)
@@ -162,7 +177,7 @@ def run_action(action, callback, message):
   global ACTION_THREAD, ACTIVE_ACTION, LAST_ACTION_ERROR
 
   with ACTION_LOCK:
-    if ACTION_THREAD and ACTION_THREAD.is_alive():
+    if ACTIVE_ACTION or get_registered_mission():
       return jsonify({
         "ok": False,
         "action": action,
@@ -172,13 +187,15 @@ def run_action(action, callback, message):
     LAST_ACTION_ERROR = None
     ACTIVE_ACTION = action
     TLM.reset()
+    abort_sequence = ACTION_ABORT_SEQUENCE
     record_mission_event("action_start_requested", action)
-    ACTION_THREAD = threading.Thread(
-      target=run_action_thread,
-      args=(action, callback),
-      daemon=True,
-      name=f"ksp-{action}",
+    ACTION_THREAD = threading.Timer(
+      0.05,
+      run_action_thread,
+      args=(action, callback, abort_sequence),
     )
+    ACTION_THREAD.daemon = True
+    ACTION_THREAD.name = f"ksp-{action}"
     ACTION_THREAD.start()
 
   return jsonify({
@@ -187,6 +204,25 @@ def run_action(action, callback, message):
     "started": True,
     "message": message,
   }), 202
+
+
+def cancel_active_action(reason):
+  global ACTION_ABORT_SEQUENCE, ACTION_THREAD, ACTIVE_ACTION, LAST_ACTION_ERROR
+
+  with ACTION_LOCK:
+    action = ACTIVE_ACTION
+    thread = ACTION_THREAD
+    ACTION_ABORT_SEQUENCE += 1
+    ACTIVE_ACTION = None
+    LAST_ACTION_ERROR = None
+
+    if isinstance(thread, threading.Timer):
+      thread.cancel()
+
+  if action:
+    record_mission_event("action_cancel_requested", action, reason=reason)
+
+  TLM.reset()
 
 
 @app.route("/api/viewports", methods=["GET", "POST"])
@@ -272,7 +308,7 @@ def health():
   mission = get_active_mission_status()
 
   with ACTION_LOCK:
-    action = ACTIVE_ACTION if ACTION_THREAD and ACTION_THREAD.is_alive() else None
+    action = ACTIVE_ACTION
     last_error = LAST_ACTION_ERROR
 
   return jsonify({
@@ -286,6 +322,7 @@ def health():
     "action": action,
     "last_error": last_error,
     "krpc_query_busy": KRPC_QUERY_LOCK.locked(),
+    "krpc_connections": get_connection_ledger(),
     "telemetry_stream_running": TELEMETRY_STREAM_STARTED,
     **get_cached_vessel_state(),
   })
@@ -296,7 +333,7 @@ def mission_status():
   mission = get_active_mission_status()
 
   with ACTION_LOCK:
-    action = ACTIVE_ACTION if ACTION_THREAD and ACTION_THREAD.is_alive() else None
+    action = ACTIVE_ACTION
     last_error = LAST_ACTION_ERROR
 
   mission["action"] = action
@@ -347,8 +384,23 @@ def lko_tourism_route():
 
 @app.route("/api/abort", methods=["POST"])
 def abort_route():
+  cancel_active_action("Abort requested")
   abort_active_mission("Abort requested")
 
+  thread = threading.Thread(
+    target=abort_active_vessel_controls,
+    daemon=True,
+    name="ksp-abort-controls",
+  )
+  thread.start()
+
+  return jsonify({
+    "ok": True,
+    "aborted": True,
+  }), 202
+
+
+def abort_active_vessel_controls():
   conn, vessel = safe_connect("Abort")
 
   if conn and vessel:
@@ -361,11 +413,6 @@ def abort_route():
       safe_value(lambda: setattr(vessel.control, "rcs", False))
     finally:
       close_connection(conn)
-
-  return jsonify({
-    "ok": True,
-    "aborted": True,
-  }), 202
 
 
 @app.route("/api/revert-to-launch", methods=["POST"])
@@ -443,7 +490,7 @@ if __name__ == "__main__":
   log_backend_lifecycle("starting")
   app.run(
     host="0.0.0.0",
-    port=5000,
+    port=int(os.environ.get("KSP_BACKEND_PORT", "5000")),
     debug=False,
     threaded=True,
     use_reloader=False,

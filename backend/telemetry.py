@@ -5,7 +5,13 @@ import threading
 import time
 
 from cameras import get_camera_snapshot
-from krpc_utils import get_vessel_identifier, safe_value, vessel_is_readable
+from krpc_utils import (
+  close_connection,
+  get_vessel_identifier,
+  mark_connection_streams,
+  safe_value,
+  vessel_is_readable,
+)
 
 G0 = 9.80665
 KERBIN_SEA_LEVEL_PRESSURE_PA = 101325
@@ -566,6 +572,9 @@ class Telemetry:
       self.reset()
       return False
 
+    with self._lock:
+      prior_conn = self._conn
+
     flight = vessel.flight(vessel.orbit.body.reference_frame)
 
     altitude = conn.add_stream(getattr, flight, "mean_altitude")
@@ -620,33 +629,41 @@ class Telemetry:
       "warp": lambda: get_warp_status(conn),
     }
 
-    self._conn = conn
-    self._vessel = vessel
-    self._vessel_name = safe_value(lambda: vessel.name)
-    self._initialized = True
-    self.update("Telemetry initialized", include_slow=False)
+    with self._lock:
+      self._conn = conn
+      self._vessel = vessel
+      self._vessel_name = safe_value(lambda: vessel.name)
+      self._initialized = True
+
+    if prior_conn is not None and prior_conn is not conn:
+      close_connection(prior_conn, stop_warp_first=False)
+
+    mark_connection_streams(conn, len(self._getters))
+    self.update("Telemetry initialized", include_slow=True)
     return True
 
   def reset(self):
     with self._lock:
+      conn = self._conn
       self._data = {}
+      self._getters = {}
+      self._conn = None
+      self._vessel = None
+      self._vessel_name = None
+      self._warning = "None"
+      self._delta_v = 0
+      self._delta_v_profiles = {}
+      self._delta_v_checked_at = 0
+      self._snapshot_delta_v = 0
+      self._snapshot_delta_v_profiles = {}
+      self._snapshot_delta_v_checked_at = 0
+      self._snapshot_vessel_id = None
+      self._slow_data = {}
+      self._slow_checked_at = 0
+      self._updated_at = 0
+      self._initialized = False
 
-    self._getters = {}
-    self._conn = None
-    self._vessel = None
-    self._vessel_name = None
-    self._warning = "None"
-    self._delta_v = 0
-    self._delta_v_profiles = {}
-    self._delta_v_checked_at = 0
-    self._snapshot_delta_v = 0
-    self._snapshot_delta_v_profiles = {}
-    self._snapshot_delta_v_checked_at = 0
-    self._snapshot_vessel_id = None
-    self._slow_data = {}
-    self._slow_checked_at = 0
-    self._updated_at = 0
-    self._initialized = False
+    close_connection(conn, stop_warp_first=False)
 
   def update_slow_data(self, force=False):
     now = time.monotonic()
@@ -845,8 +862,11 @@ class Telemetry:
 
     return values
 
-  def update(self, status="nominal", include_slow=False):
+  def update(self, status="nominal", include_slow=None):
     values = self.streams(status)
+
+    if include_slow is None:
+      include_slow = time.monotonic() - self._slow_checked_at >= 1
 
     if include_slow:
       values.update(self.update_slow_data())
