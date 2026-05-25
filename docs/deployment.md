@@ -117,6 +117,10 @@ sudo /usr/local/sbin/ksp-control-panel-install-system-config
 After that, normal `git push prod main` deploys will apply Nginx/systemd template
 changes automatically.
 
+The `/jrti/` proxy also exposes JRTI's root-relative viewer dependencies such as
+`/camera/...`, `/js/...`, `/css/...`, and `/images/...`. JRTI's viewer HTML uses
+absolute paths internally, so these routes must be proxied too.
+
 ## Health Checks
 
 Backend:

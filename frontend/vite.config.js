@@ -14,6 +14,38 @@ export default defineConfig({
         changeOrigin: true,
         rewrite: path => path.replace(/^\/jrti/, ""),
       },
+      "/camera": {
+        target: "http://192.168.20.104:8080",
+        changeOrigin: true,
+      },
+      "/cameras": {
+        target: "http://192.168.20.104:8080",
+        changeOrigin: true,
+      },
+      "/session": {
+        target: "http://192.168.20.104:8080",
+        changeOrigin: true,
+      },
+      "/viewer.html": {
+        target: "http://192.168.20.104:8080",
+        changeOrigin: true,
+      },
+      "/js": {
+        target: "http://192.168.20.104:8080",
+        changeOrigin: true,
+      },
+      "/css": {
+        target: "http://192.168.20.104:8080",
+        changeOrigin: true,
+      },
+      "/images": {
+        target: "http://192.168.20.104:8080",
+        changeOrigin: true,
+      },
+      "/recordings": {
+        target: "http://192.168.20.104:8080",
+        changeOrigin: true,
+      },
     },
   },
 });
