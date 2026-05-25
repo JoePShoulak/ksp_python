@@ -123,6 +123,9 @@ absolute paths internally, so these routes must be proxied too.
 
 The proxied JRTI `js/config.js` is lightly patched by dev/prod proxy config so
 multicam snapshots refresh every `500ms` instead of JRTI's default `10000ms`.
+The proxied JRTI `js/camera-card.js` is also patched so streaming cameras start
+their native live preview in the multicam grid without needing a separate Watch
+tab or recording session.
 
 ## Health Checks
 
