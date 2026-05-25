@@ -124,7 +124,12 @@ def launch_to_orbit():
 
   try:
     guard.check(force=True)
-    TLM.begin(conn, vessel)
+    record_mission_event("launch_tlm_begin_start", "Launch")
+
+    if not TLM.begin(conn, vessel):
+      raise MissionAborted("Launch stopped because telemetry could not attach to the active vessel")
+
+    record_mission_event("launch_tlm_begin_done", "Launch")
 
     launch(conn, vessel, guard)
     gravity_turn_to_orbit(conn, vessel, guard)

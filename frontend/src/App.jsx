@@ -292,19 +292,32 @@ function App() {
   }, []);
 
   async function handleRunAction(actionId) {
-    setActiveActionId(actionId);
+    const previousActionId = activeActionIdRef.current;
+
     setActionError(null);
     activeActionStartedAtRef.current = Date.now();
     await new Promise(resolve => window.requestAnimationFrame(resolve));
 
     try {
       await runKspAction(actionId);
-      await pollTelemetry();
+      setActiveActionId(actionId);
+      setMissionActive(true);
     } catch (error) {
       setActionError(error.message || "Mission request failed");
+      setActiveActionId(previousActionId);
+      return;
+    }
+
+    try {
       await pollTelemetry();
-    } finally {
+    } catch {
+      // The mission was accepted; telemetry will catch up on the normal poll loop.
+    }
+
+    try {
       await pollMissionStatus();
+    } catch {
+      // The mission was accepted; mission status will catch up on the normal poll loop.
     }
 
     const actionHasSettled = Date.now() - activeActionStartedAtRef.current > 750;

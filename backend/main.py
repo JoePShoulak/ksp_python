@@ -71,6 +71,11 @@ def build_telemetry_response(snapshot, vessel_check):
   })
 
 
+def action_is_starting_or_running():
+  with ACTION_LOCK:
+    return bool(ACTIVE_ACTION or (ACTION_THREAD and ACTION_THREAD.is_alive()))
+
+
 def telemetry_stream_loop():
   global LAST_TELEMETRY_ERROR
 
@@ -79,7 +84,7 @@ def telemetry_stream_loop():
   while True:
     mission = get_registered_mission()
 
-    if mission:
+    if mission or action_is_starting_or_running():
       time.sleep(TELEMETRY_STREAM_INTERVAL)
       continue
 
@@ -166,6 +171,7 @@ def run_action(action, callback, message):
 
     LAST_ACTION_ERROR = None
     ACTIVE_ACTION = action
+    TLM.reset()
     record_mission_event("action_start_requested", action)
     ACTION_THREAD = threading.Thread(
       target=run_action_thread,
