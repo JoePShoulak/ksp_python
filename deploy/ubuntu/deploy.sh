@@ -5,8 +5,15 @@ APP_DIR="${APP_DIR:-/opt/ksp-control-panel/app}"
 APP_ROOT="${APP_ROOT:-/opt/ksp-control-panel}"
 VENV_DIR="${VENV_DIR:-$APP_ROOT/venv}"
 BACKEND_SERVICE="${BACKEND_SERVICE:-ksp-backend}"
+GIT_COMMIT="${GIT_COMMIT:-$(git rev-parse --short HEAD 2>/dev/null || true)}"
 
 cd "$APP_DIR"
+
+if [[ -n "$GIT_COMMIT" ]]; then
+  echo "KSP_GIT_COMMIT=$GIT_COMMIT" >"$APP_DIR/.runtime.env"
+else
+  : >"$APP_DIR/.runtime.env"
+fi
 
 if [[ ! -d "$VENV_DIR" ]]; then
   python3 -m venv "$VENV_DIR"

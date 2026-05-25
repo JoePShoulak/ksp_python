@@ -359,6 +359,17 @@ def health():
   })
 
 
+@app.route("/api/version", methods=["GET"])
+def version():
+  return jsonify({
+    "ok": True,
+    "git_commit": os.environ.get("KSP_GIT_COMMIT"),
+    "pid": os.getpid(),
+    "started_at": STARTED_AT,
+    "uptime_seconds": time.time() - STARTED_AT,
+  })
+
+
 @app.route("/api/mission", methods=["GET"])
 def mission_status():
   mission = get_active_mission_status()
