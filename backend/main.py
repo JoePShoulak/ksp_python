@@ -23,6 +23,7 @@ from mission_state import (
   get_active_mission_status,
   get_registered_mission,
   get_mission_events,
+  is_graceful_vessel_lost_message,
   is_vessel_lost_error,
   record_mission_event,
 )
@@ -187,8 +188,12 @@ def run_action_thread(action, callback, abort_sequence):
     TLM.reset()
     callback()
   except MissionAborted as error:
-    LAST_ACTION_ERROR = str(error)
-    record_mission_event("action_aborted", action, error=LAST_ACTION_ERROR)
+    if is_graceful_vessel_lost_message(error):
+      LAST_ACTION_ERROR = None
+      record_mission_event("action_vessel_lost", action, message=str(error))
+    else:
+      LAST_ACTION_ERROR = str(error)
+      record_mission_event("action_aborted", action, error=LAST_ACTION_ERROR)
     pass
   except Exception as error:
     if not is_vessel_lost_error(error):

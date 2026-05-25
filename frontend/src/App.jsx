@@ -267,6 +267,7 @@ function App() {
       const missionActionId = getMissionActionId(data.mission);
       const isMissionOrActionActive = isMissionActive || Boolean(missionActionId);
       const missionError = data.mission?.last_error ?? null;
+      const vesselLostGracefully = isGracefulVesselLostError(missionError);
 
       markApiSuccess();
       setBackendHealth(currentHealth => ({
@@ -275,9 +276,13 @@ function App() {
         checkedAt: currentHealth.checkedAt ?? Date.now(),
         error: null,
       }));
-      setMissionActive(isMissionOrActionActive);
+      setMissionActive(vesselLostGracefully ? false : isMissionOrActionActive);
 
-      if (missionError) {
+      if (vesselLostGracefully) {
+        setActionError(null);
+        setActiveActionId(null);
+        setPendingActionId(null);
+      } else if (missionError) {
         setActionError(missionError);
       }
 
@@ -475,4 +480,8 @@ function getMissionActionId(mission) {
   }
 
   return MISSION_PHASE_ACTIONS[mission.phase] ?? null;
+}
+
+function isGracefulVesselLostError(message) {
+  return String(message || "").includes("active vessel is no longer available");
 }

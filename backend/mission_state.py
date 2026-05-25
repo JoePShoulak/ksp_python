@@ -57,6 +57,10 @@ def mission_aborted_message(phase):
   return f"{phase} stopped because the active vessel is no longer available"
 
 
+def is_graceful_vessel_lost_message(message):
+  return "active vessel is no longer available" in str(message)
+
+
 def close_mission_connection(conn):
   record_mission_event("close_connection")
   close_connection(conn)
