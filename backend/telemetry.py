@@ -16,6 +16,7 @@ from krpc_utils import (
 G0 = 9.80665
 SLOW_TELEMETRY_INTERVAL = 10
 SLOW_TELEMETRY_LOG_THRESHOLD = 0.75
+ACTIVE_VESSEL_MISS_LIMIT = 60
 MISSION_FAST_STATUSES = {
   "Pre-flight check",
   "Launching in 3...",
@@ -788,7 +789,7 @@ class Telemetry:
     if not active_vessel:
       self._active_vessel_miss_count += 1
 
-      if self._active_vessel_miss_count >= 12:
+      if self._active_vessel_miss_count >= ACTIVE_VESSEL_MISS_LIMIT:
         self.reset()
 
       return False
@@ -822,7 +823,7 @@ class Telemetry:
     if not active_vessel:
       self._active_vessel_miss_count += 1
 
-      if self._active_vessel_miss_count >= 12:
+      if self._active_vessel_miss_count >= ACTIVE_VESSEL_MISS_LIMIT:
         self.reset()
 
       return False

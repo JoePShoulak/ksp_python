@@ -19,7 +19,7 @@ import FullscreenButton from "./components/FullscreenButton";
 import MissionTelemetryPanel from "./components/MissionTelemetryPanel";
 
 const BACKEND_OFFLINE_FAILURE_LIMIT = 3;
-const VESSEL_LOST_FAILURE_LIMIT = 10;
+const VESSEL_LOST_FAILURE_LIMIT = 20;
 const POLL_TIMEOUT_MS = 2500;
 const LIVE_POLL_INTERVAL_MS = 750;
 const IDLE_POLL_INTERVAL_MS = 750;
@@ -182,11 +182,7 @@ function App() {
 
       vesselLostCountRef.current += 1;
 
-      if (
-        data.vessel_check === "initializing" ||
-        !hasVesselRef.current ||
-        vesselLostCountRef.current >= VESSEL_LOST_FAILURE_LIMIT
-      ) {
+      if (!hasVesselRef.current || vesselLostCountRef.current >= VESSEL_LOST_FAILURE_LIMIT) {
         setTelemetry(null);
         setHasVessel(false);
 
