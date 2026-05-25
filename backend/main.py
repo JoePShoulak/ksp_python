@@ -37,6 +37,7 @@ ACTION_THREAD = None
 ACTIVE_ACTION = None
 LAST_ACTION_ERROR = None
 ACTION_ABORT_SEQUENCE = 0
+ACTION_HOLDS_KRPC_LOCK = False
 VIEWPORT_REPORTS = {}
 VIEWPORT_LOCK = threading.Lock()
 STARTED_AT = time.time()
@@ -95,7 +96,14 @@ def telemetry_stream_loop():
       time.sleep(TELEMETRY_STREAM_INTERVAL)
       continue
 
+    if not KRPC_QUERY_LOCK.acquire(blocking=False):
+      time.sleep(TELEMETRY_STREAM_INTERVAL)
+      continue
+
     try:
+      if mission or action_is_starting_or_running():
+        continue
+
       if TLM.is_initialized():
         if TLM.sync_active_vessel():
           now = time.time()
@@ -108,19 +116,18 @@ def telemetry_stream_loop():
           LAST_TELEMETRY_ERROR = None
         else:
           LAST_TELEMETRY_ERROR = "No active vessel"
-      elif KRPC_QUERY_LOCK.acquire(blocking=False):
-        try:
-          conn, vessel = safe_connect("Telemetry Stream")
+      else:
+        conn, vessel = safe_connect("Telemetry Stream")
 
-          if conn and vessel:
-            TLM.begin(conn, vessel)
-            LAST_TELEMETRY_ERROR = None
-          else:
-            LAST_TELEMETRY_ERROR = "No active vessel"
-        finally:
-          KRPC_QUERY_LOCK.release()
+        if conn and vessel:
+          TLM.begin(conn, vessel)
+          LAST_TELEMETRY_ERROR = None
+        else:
+          LAST_TELEMETRY_ERROR = "No active vessel"
     except Exception as error:
       LAST_TELEMETRY_ERROR = str(error)
+    finally:
+      KRPC_QUERY_LOCK.release()
 
     time.sleep(TELEMETRY_STREAM_INTERVAL)
 
@@ -143,7 +150,7 @@ def ensure_telemetry_stream_started():
 
 
 def run_action_thread(action, callback, abort_sequence):
-  global ACTIVE_ACTION, LAST_ACTION_ERROR
+  global ACTIVE_ACTION, ACTION_HOLDS_KRPC_LOCK, LAST_ACTION_ERROR
 
   try:
     record_mission_event("action_thread_start", action)
@@ -172,12 +179,28 @@ def run_action_thread(action, callback, abort_sequence):
       if ACTIVE_ACTION == action:
         ACTIVE_ACTION = None
 
+      release_krpc_lock = ACTION_HOLDS_KRPC_LOCK
+      ACTION_HOLDS_KRPC_LOCK = False
+
+    if release_krpc_lock:
+      KRPC_QUERY_LOCK.release()
+
 
 def run_action(action, callback, message):
-  global ACTION_THREAD, ACTIVE_ACTION, LAST_ACTION_ERROR
+  global ACTION_THREAD, ACTIVE_ACTION, ACTION_HOLDS_KRPC_LOCK, LAST_ACTION_ERROR
+
+  krpc_lock_acquired = KRPC_QUERY_LOCK.acquire(timeout=5)
+
+  if not krpc_lock_acquired:
+    return jsonify({
+      "ok": False,
+      "action": action,
+      "error": "KSP connection is busy; try again in a moment",
+    }), 503
 
   with ACTION_LOCK:
     if ACTIVE_ACTION or get_registered_mission():
+      KRPC_QUERY_LOCK.release()
       return jsonify({
         "ok": False,
         "action": action,
@@ -186,12 +209,12 @@ def run_action(action, callback, message):
 
     LAST_ACTION_ERROR = None
     ACTIVE_ACTION = action
+    ACTION_HOLDS_KRPC_LOCK = True
     TLM.reset()
     abort_sequence = ACTION_ABORT_SEQUENCE
     record_mission_event("action_start_requested", action)
-    ACTION_THREAD = threading.Timer(
-      0.05,
-      run_action_thread,
+    ACTION_THREAD = threading.Thread(
+      target=run_action_thread,
       args=(action, callback, abort_sequence),
     )
     ACTION_THREAD.daemon = True
@@ -211,13 +234,9 @@ def cancel_active_action(reason):
 
   with ACTION_LOCK:
     action = ACTIVE_ACTION
-    thread = ACTION_THREAD
     ACTION_ABORT_SEQUENCE += 1
     ACTIVE_ACTION = None
     LAST_ACTION_ERROR = None
-
-    if isinstance(thread, threading.Timer):
-      thread.cancel()
 
   if action:
     record_mission_event("action_cancel_requested", action, reason=reason)
