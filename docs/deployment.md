@@ -121,6 +121,9 @@ The `/jrti/` proxy also exposes JRTI's root-relative viewer dependencies such as
 `/camera/...`, `/js/...`, `/css/...`, and `/images/...`. JRTI's viewer HTML uses
 absolute paths internally, so these routes must be proxied too.
 
+The proxied JRTI `js/config.js` is lightly patched by dev/prod proxy config so
+multicam snapshots refresh every `500ms` instead of JRTI's default `10000ms`.
+
 ## Health Checks
 
 Backend:

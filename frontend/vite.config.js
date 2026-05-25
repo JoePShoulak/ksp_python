@@ -1,8 +1,11 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
+const JRTI_TARGET = "http://192.168.20.104:8080";
+const JRTI_SNAPSHOT_REFRESH_MS = 500;
+
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), jrtiConfigOverride()],
   server: {
     proxy: {
       "/api": {
@@ -10,42 +13,72 @@ export default defineConfig({
         changeOrigin: true,
       },
       "/jrti": {
-        target: "http://192.168.20.104:8080",
+        target: JRTI_TARGET,
         changeOrigin: true,
         rewrite: path => path.replace(/^\/jrti/, ""),
       },
       "/camera": {
-        target: "http://192.168.20.104:8080",
+        target: JRTI_TARGET,
         changeOrigin: true,
       },
       "/cameras": {
-        target: "http://192.168.20.104:8080",
+        target: JRTI_TARGET,
         changeOrigin: true,
       },
       "/session": {
-        target: "http://192.168.20.104:8080",
+        target: JRTI_TARGET,
         changeOrigin: true,
       },
       "/viewer.html": {
-        target: "http://192.168.20.104:8080",
+        target: JRTI_TARGET,
         changeOrigin: true,
       },
       "/js": {
-        target: "http://192.168.20.104:8080",
+        target: JRTI_TARGET,
         changeOrigin: true,
       },
       "/css": {
-        target: "http://192.168.20.104:8080",
+        target: JRTI_TARGET,
         changeOrigin: true,
       },
       "/images": {
-        target: "http://192.168.20.104:8080",
+        target: JRTI_TARGET,
         changeOrigin: true,
       },
       "/recordings": {
-        target: "http://192.168.20.104:8080",
+        target: JRTI_TARGET,
         changeOrigin: true,
       },
     },
   },
 });
+
+function patchJrtiConfig(source) {
+  return source.replace(
+    /export const SNAPSHOT_REFRESH_MS = \d+;/,
+    `export const SNAPSHOT_REFRESH_MS = ${JRTI_SNAPSHOT_REFRESH_MS};`,
+  );
+}
+
+function jrtiConfigOverride() {
+  return {
+    name: "jrti-config-override",
+    configureServer(server) {
+      server.middlewares.use("/js/config.js", async (_request, response, next) => {
+        try {
+          const jrtiResponse = await fetch(`${JRTI_TARGET}/js/config.js`);
+
+          if (!jrtiResponse.ok) {
+            next();
+            return;
+          }
+
+          response.setHeader("content-type", "application/javascript; charset=utf-8");
+          response.end(patchJrtiConfig(await jrtiResponse.text()));
+        } catch {
+          next();
+        }
+      });
+    },
+  };
+}
