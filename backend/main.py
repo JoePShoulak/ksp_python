@@ -42,6 +42,16 @@ def log_backend_lifecycle(message):
 atexit.register(lambda: log_backend_lifecycle("exiting"))
 
 
+def get_cached_vessel_state():
+  snapshot = TLM.get_snapshot()
+
+  return {
+    "has_cached_telemetry": bool(snapshot),
+    "telemetry_initialized": TLM.is_initialized(),
+    "cached_vessel_name": snapshot.get("vessel_name"),
+  }
+
+
 def run_action_thread(action, callback):
   global ACTIVE_ACTION, LAST_ACTION_ERROR
 
@@ -140,7 +150,18 @@ def viewports():
 
 @app.route("/api/status", methods=["GET"])
 def status():
-  with KRPC_QUERY_LOCK:
+  if not KRPC_QUERY_LOCK.acquire(blocking=False):
+    cached_state = get_cached_vessel_state()
+
+    return jsonify({
+      "ok": True,
+      "message": "KSP Interface API is running",
+      "has_vessel": cached_state["has_cached_telemetry"],
+      "vessel_check": "busy",
+      **cached_state,
+    })
+
+  try:
     conn, vessel = safe_connect("Status")
 
     if not get_registered_mission():
@@ -150,11 +171,15 @@ def status():
 
     if conn:
       close_connection(conn, stop_warp_first=False)
+  finally:
+    KRPC_QUERY_LOCK.release()
 
   return jsonify({
     "ok": True,
     "message": "KSP Interface API is running",
     "has_vessel": has_vessel,
+    "vessel_check": "fresh",
+    **get_cached_vessel_state(),
   })
 
 
@@ -176,6 +201,8 @@ def health():
     "mission_active": bool(mission.get("active")),
     "action": action,
     "last_error": last_error,
+    "krpc_query_busy": KRPC_QUERY_LOCK.locked(),
+    **get_cached_vessel_state(),
   })
 
 
@@ -311,7 +338,18 @@ def get_telemetry():
 
     TLM.reset()
 
-  with KRPC_QUERY_LOCK:
+  if not KRPC_QUERY_LOCK.acquire(blocking=False):
+    cached_state = get_cached_vessel_state()
+
+    return jsonify({
+      "ok": True,
+      "has_vessel": cached_state["has_cached_telemetry"],
+      "telemetry": snapshot if snapshot else None,
+      "vessel_check": "busy",
+      **cached_state,
+    })
+
+  try:
     conn, vessel = safe_connect("Telemetry")
 
     if not get_registered_mission():
@@ -328,11 +366,14 @@ def get_telemetry():
       snapshot = TLM.capture(conn, vessel, "Idle")
     finally:
       close_connection(conn, stop_warp_first=False)
+  finally:
+    KRPC_QUERY_LOCK.release()
 
   return jsonify({
     "ok": True,
     "has_vessel": True,
     "telemetry": snapshot,
+    "vessel_check": "fresh",
   })
 
 

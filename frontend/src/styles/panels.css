@@ -143,6 +143,11 @@
   box-shadow: 0 0 0.65rem rgba(231, 199, 90, 0.45);
 }
 
+.backend-health-status.busy .connection-dot {
+  background: var(--accent-blue);
+  box-shadow: 0 0 0.65rem rgba(116, 167, 255, 0.45);
+}
+
 .backend-health-details {
   display: grid;
   gap: 0.35rem;

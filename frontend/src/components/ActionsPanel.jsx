@@ -50,6 +50,7 @@ function BackendHealthPanel({ backendHealth }) {
     online: "Backend online",
     offline: "Backend unreachable",
     checking: "Checking backend",
+    busy: "Backend busy",
   }[backendHealth.state] ?? "Checking backend";
 
   return (

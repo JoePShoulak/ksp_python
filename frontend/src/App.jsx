@@ -195,6 +195,16 @@ function App() {
     } catch {
       healthFailureCountRef.current += 1;
 
+      if (activeActionIdRef.current || missionActiveRef.current) {
+        setBackendHealth(currentHealth => ({
+          ...currentHealth,
+          state: "busy",
+          checkedAt: Date.now(),
+          error: "Mission command in progress",
+        }));
+        return;
+      }
+
       if (healthFailureCountRef.current >= BACKEND_OFFLINE_FAILURE_LIMIT) {
         setBackendHealth({
           state: "offline",
@@ -229,6 +239,13 @@ function App() {
       const missionActionId = data.mission?.action ?? null;
       const missionError = data.mission?.last_error ?? null;
 
+      healthFailureCountRef.current = 0;
+      setBackendHealth(currentHealth => ({
+        ...currentHealth,
+        state: "online",
+        checkedAt: currentHealth.checkedAt ?? Date.now(),
+        error: null,
+      }));
       setMissionActive(isMissionActive);
 
       if (missionError) {
