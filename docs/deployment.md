@@ -10,14 +10,14 @@ Browser
   -> http://192.168.20.105:5173
   -> Nginx static frontend
   -> /api proxied to 127.0.0.1:5000
-  -> Gunicorn + Flask backend
+  -> Flask backend
   -> kRPC at 192.168.20.104:50000/50001
 ```
 
-The backend intentionally runs as one Gunicorn worker with one request thread.
-Mission state and kRPC ownership live in process memory, and KSP exposes one
-active vessel control lane, so production should preserve the same single-brain
-behavior as local development.
+The backend intentionally runs the same Flask entrypoint in production that we
+use during development: `python main.py`. Mission state and kRPC ownership live
+in process memory, and KSP exposes one active vessel control lane, so production
+should preserve the same single-brain behavior as local development.
 
 ## Local Development
 

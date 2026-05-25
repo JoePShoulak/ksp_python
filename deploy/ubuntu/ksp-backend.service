@@ -10,7 +10,7 @@ Group=ksp
 WorkingDirectory=/opt/ksp-control-panel/app/backend
 EnvironmentFile=-/etc/ksp-control-panel.env
 EnvironmentFile=-/opt/ksp-control-panel/app/.runtime.env
-ExecStart=/opt/ksp-control-panel/venv/bin/gunicorn --bind 127.0.0.1:5000 --workers 1 --threads 1 --timeout 900 main:app
+ExecStart=/opt/ksp-control-panel/venv/bin/python main.py
 Restart=on-failure
 RestartSec=3
 
