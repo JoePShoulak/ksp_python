@@ -1,0 +1,17 @@
+[Unit]
+Description=KSP Control Panel backend
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ksp
+Group=ksp
+WorkingDirectory=/opt/ksp-control-panel/app/backend
+EnvironmentFile=-/etc/ksp-control-panel.env
+ExecStart=/opt/ksp-control-panel/venv/bin/gunicorn --bind 127.0.0.1:5000 --workers 1 --threads 8 --timeout 900 main:app
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

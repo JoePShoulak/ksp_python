@@ -1,4 +1,19 @@
+import os
+
 import krpc # type: ignore
+
+from config import load_env_file
+
+
+load_env_file()
+
+
+def get_krpc_connection_config():
+  return {
+    "address": os.environ.get("KRPC_ADDRESS", "192.168.20.104"),
+    "rpc_port": int(os.environ.get("KRPC_RPC_PORT", "50000")),
+    "stream_port": int(os.environ.get("KRPC_STREAM_PORT", "50001")),
+  }
 
 
 def safe_value(getter, fallback=None):
@@ -73,7 +88,7 @@ def close_connection(conn, stop_warp_first=True):
 
 def safe_connect(name):
   try:
-    conn = krpc.connect(name=name)
+    conn = krpc.connect(name=name, **get_krpc_connection_config())
   except Exception:
     return False, False
 

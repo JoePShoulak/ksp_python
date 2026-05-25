@@ -1,0 +1,4 @@
+Flask>=3.0,<4
+gunicorn>=22,<24
+krpc==0.5.4
+protobuf>=3.6
