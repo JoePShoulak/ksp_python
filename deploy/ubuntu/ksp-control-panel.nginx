@@ -40,7 +40,6 @@ server {
     proxy_cache off;
     proxy_set_header Accept-Encoding "";
     sub_filter_once off;
-    sub_filter_types text/html;
     add_header Cache-Control "no-store";
     sub_filter "<title>Just Read The Instructions</title>" "<title>Camera Feeds</title>";
     sub_filter "<h1>Just Read The Instructions</h1>" "<h1 hidden></h1>";

@@ -62,29 +62,29 @@ case "$COMMAND" in
     show_health
     echo
     echo "Backend service"
-    prod_ssh "systemctl --no-pager --full status ksp-backend || true"
+    prod_ssh "/usr/bin/systemctl --no-pager --full status ksp-backend || true"
     ;;
   health)
     show_health
     ;;
   up)
-    run_remote "sudo systemctl start ksp-backend && sudo nginx -t && sudo systemctl reload nginx"
+    run_remote "sudo /usr/bin/systemctl start ksp-backend && sudo /usr/sbin/nginx -t && sudo /usr/bin/systemctl reload nginx"
     show_health
     ;;
   down)
-    run_remote "sudo systemctl stop ksp-backend"
+    run_remote "sudo /usr/bin/systemctl stop ksp-backend"
     echo "Backend stopped. The frontend may still load, but API calls will be offline."
     ;;
   restart)
-    run_remote "sudo systemctl restart ksp-backend"
+    run_remote "sudo /usr/bin/systemctl restart ksp-backend"
     show_health
     ;;
   reload)
-    run_remote "sudo nginx -t && sudo systemctl reload nginx"
+    run_remote "sudo /usr/sbin/nginx -t && sudo /usr/bin/systemctl reload nginx"
     echo "Nginx reloaded."
     ;;
   logs)
-    run_remote "sudo journalctl -u ksp-backend -n 120 -f"
+    run_remote "sudo /usr/bin/journalctl -u ksp-backend -n 120 -f"
     ;;
   repair-sudo)
     run_remote "sudo /usr/local/sbin/ksp-control-panel-install-system-config"
