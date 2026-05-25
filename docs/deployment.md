@@ -109,6 +109,7 @@ bash scripts/prod restart   # restart backend
 bash scripts/prod down      # stop backend
 bash scripts/prod up        # start backend and reload Nginx
 bash scripts/prod repair-sudo # refresh prod sudo permissions
+bash scripts/prod redeploy  # re-run deployment even if Git says up-to-date
 bash scripts/prod deploy    # push current commit to production main
 ```
 

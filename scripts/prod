@@ -22,6 +22,25 @@ run_remote() {
   fi
 }
 
+redeploy_remote() {
+  run_remote "git --work-tree=/opt/ksp-control-panel/app --git-dir=/srv/git/ksp-control-panel.git checkout -f $BRANCH && cd /opt/ksp-control-panel/app && bash deploy/ubuntu/deploy.sh"
+}
+
+require_clean_deploy_tree() {
+  local dirty
+
+  dirty="$(git status --porcelain)"
+
+  if [[ -n "$dirty" ]]; then
+    echo "There are local changes that are not committed, so deploy would not include them."
+    echo
+    echo "$dirty"
+    echo
+    echo "Commit the changes first, then run: bash scripts/prod deploy"
+    return 1
+  fi
+}
+
 show_health() {
   python3 - "$PROD_URL/api/health" <<'PY'
 import json
@@ -68,11 +87,11 @@ case "$COMMAND" in
     show_health
     ;;
   up)
-    run_remote "sudo /usr/bin/systemctl start ksp-backend && sudo /usr/sbin/nginx -t && sudo /usr/bin/systemctl reload nginx"
+    run_remote "sudo /usr/bin/systemctl restart ksp-backend && sudo /usr/sbin/nginx -t && sudo /usr/bin/systemctl reload nginx"
     show_health
     ;;
   down)
-    run_remote "sudo /usr/bin/systemctl stop ksp-backend"
+    prod_ssh "pkill -TERM -u ksp -f 'gunicorn.*main:app' || true"
     echo "Backend stopped. The frontend may still load, but API calls will be offline."
     ;;
   restart)
@@ -90,14 +109,19 @@ case "$COMMAND" in
     run_remote "sudo /usr/local/sbin/ksp-control-panel-install-system-config"
     echo "Prod sudo permissions refreshed."
     ;;
+  redeploy)
+    redeploy_remote
+    ;;
   deploy|update)
+    require_clean_deploy_tree
     git push prod "HEAD:$BRANCH"
+    redeploy_remote
     ;;
   ssh)
     ssh "$HOST_NAME"
     ;;
   *)
-    echo "Usage: scripts/prod [status|health|up|down|restart|reload|logs|repair-sudo|deploy|update|ssh]"
+    echo "Usage: scripts/prod [status|health|up|down|restart|reload|logs|repair-sudo|redeploy|deploy|update|ssh]"
     exit 2
     ;;
 esac
