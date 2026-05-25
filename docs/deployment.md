@@ -14,8 +14,10 @@ Browser
   -> kRPC at 192.168.20.104:50000/50001
 ```
 
-The backend intentionally runs as one Gunicorn worker. Mission state is stored in
-process memory, so multiple workers would split action locks and telemetry state.
+The backend intentionally runs as one Gunicorn worker with one request thread.
+Mission state and kRPC ownership live in process memory, and KSP exposes one
+active vessel control lane, so production should preserve the same single-brain
+behavior as local development.
 
 ## Local Development
 

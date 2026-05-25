@@ -151,9 +151,16 @@ def ensure_telemetry_stream_started():
 
 def run_action_thread(action, callback, abort_sequence):
   global ACTIVE_ACTION, ACTION_HOLDS_KRPC_LOCK, LAST_ACTION_ERROR
+  krpc_lock_acquired = False
 
   try:
     record_mission_event("action_thread_start", action)
+    KRPC_QUERY_LOCK.acquire()
+    krpc_lock_acquired = True
+
+    with ACTION_LOCK:
+      if ACTIVE_ACTION == action:
+        ACTION_HOLDS_KRPC_LOCK = True
 
     with ACTION_LOCK:
       action_was_aborted = abort_sequence != ACTION_ABORT_SEQUENCE or ACTIVE_ACTION != action
@@ -162,6 +169,7 @@ def run_action_thread(action, callback, abort_sequence):
       record_mission_event("action_start_cancelled", action)
       return
 
+    TLM.reset()
     callback()
   except MissionAborted as error:
     LAST_ACTION_ERROR = str(error)
@@ -179,7 +187,7 @@ def run_action_thread(action, callback, abort_sequence):
       if ACTIVE_ACTION == action:
         ACTIVE_ACTION = None
 
-      release_krpc_lock = ACTION_HOLDS_KRPC_LOCK
+      release_krpc_lock = krpc_lock_acquired or ACTION_HOLDS_KRPC_LOCK
       ACTION_HOLDS_KRPC_LOCK = False
 
     if release_krpc_lock:
@@ -189,18 +197,8 @@ def run_action_thread(action, callback, abort_sequence):
 def run_action(action, callback, message):
   global ACTION_THREAD, ACTIVE_ACTION, ACTION_HOLDS_KRPC_LOCK, LAST_ACTION_ERROR
 
-  krpc_lock_acquired = KRPC_QUERY_LOCK.acquire(timeout=5)
-
-  if not krpc_lock_acquired:
-    return jsonify({
-      "ok": False,
-      "action": action,
-      "error": "KSP connection is busy; try again in a moment",
-    }), 503
-
   with ACTION_LOCK:
     if ACTIVE_ACTION or get_registered_mission():
-      KRPC_QUERY_LOCK.release()
       return jsonify({
         "ok": False,
         "action": action,
@@ -209,8 +207,7 @@ def run_action(action, callback, message):
 
     LAST_ACTION_ERROR = None
     ACTIVE_ACTION = action
-    ACTION_HOLDS_KRPC_LOCK = True
-    TLM.reset()
+    ACTION_HOLDS_KRPC_LOCK = False
     abort_sequence = ACTION_ABORT_SEQUENCE
     record_mission_event("action_start_requested", action)
     ACTION_THREAD = threading.Thread(
