@@ -160,8 +160,17 @@ function App() {
     try {
       const data = await getTelemetry(options);
       const hasActiveVessel = Boolean(data.has_vessel);
+      const resetSequence = data.visual_reset_sequence;
 
       markApiSuccess();
+
+      if (
+        Number.isFinite(resetSequence) &&
+        visualResetSequenceRef.current !== resetSequence
+      ) {
+        visualResetSequenceRef.current = resetSequence;
+        setVisualResetKey(resetSequence);
+      }
 
       if (hasActiveVessel) {
         vesselLostCountRef.current = 0;
@@ -173,15 +182,18 @@ function App() {
 
       vesselLostCountRef.current += 1;
 
-      if (!hasVesselRef.current || vesselLostCountRef.current >= VESSEL_LOST_FAILURE_LIMIT) {
-        if (!telemetryRef.current) {
-          setTelemetry(null);
-          setHasVessel(false);
-        }
+      if (
+        data.vessel_check === "initializing" ||
+        !hasVesselRef.current ||
+        vesselLostCountRef.current >= VESSEL_LOST_FAILURE_LIMIT
+      ) {
+        setTelemetry(null);
+        setHasVessel(false);
 
         setConnectionState("idle");
         setActiveActionId(null);
         setMissionActive(false);
+        setPendingActionId(null);
       }
     } catch (error) {
       if (error.name === "AbortError") {

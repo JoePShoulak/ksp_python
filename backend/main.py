@@ -78,6 +78,7 @@ def build_telemetry_response(snapshot, vessel_check):
     "has_vessel": bool(snapshot),
     "telemetry": snapshot if snapshot else None,
     "vessel_check": vessel_check,
+    "visual_reset_sequence": get_active_mission_status().get("visual_reset_sequence"),
     "telemetry_error": LAST_TELEMETRY_ERROR,
     **get_cached_vessel_state(),
   })

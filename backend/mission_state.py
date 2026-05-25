@@ -67,6 +67,7 @@ def close_mission_connection(conn):
 def force_close_mission_connection(conn):
   close_connection(conn, stop_warp_first=False)
   TLM.reset()
+  increment_visual_reset_sequence()
 
 
 def increment_visual_reset_sequence():
@@ -165,7 +166,6 @@ def abort_active_mission(reason="Mission stopped"):
 
   record_mission_event("abort", mission["phase"], reason=reason)
   force_close_mission_connection(mission["conn"])
-  increment_visual_reset_sequence()
   return True
 
 
