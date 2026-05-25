@@ -326,17 +326,16 @@ def get_telemetry():
   mission = get_registered_mission()
 
   if snapshot:
-    if mission or TLM.has_active_vessel():
-      if not mission:
-        snapshot["status"] = "Idle"
+    if not mission:
+      snapshot["status"] = "Idle"
 
-      return jsonify({
-        "ok": True,
-        "has_vessel": True,
-        "telemetry": snapshot,
-      })
-
-    TLM.reset()
+    return jsonify({
+      "ok": True,
+      "has_vessel": True,
+      "telemetry": snapshot,
+      "vessel_check": "cached",
+      **get_cached_vessel_state(),
+    })
 
   if not KRPC_QUERY_LOCK.acquire(blocking=False):
     cached_state = get_cached_vessel_state()

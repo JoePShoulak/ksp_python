@@ -25,6 +25,7 @@ const LIVE_POLL_INTERVAL_MS = 750;
 const IDLE_POLL_INTERVAL_MS = 750;
 const MISSION_STATUS_INTERVAL_MS = 1500;
 const BACKEND_HEALTH_INTERVAL_MS = 5000;
+const API_RECENT_SUCCESS_MS = 15000;
 
 function App() {
   const [telemetry, setTelemetry] = useState(null);
@@ -51,6 +52,7 @@ function App() {
   const visualResetSequenceRef = useRef(null);
   const isPollingRef = useRef(false);
   const healthFailureCountRef = useRef(0);
+  const lastApiSuccessAtRef = useRef(0);
   const vesselLostCountRef = useRef(0);
 
   const isActionRunning = activeActionId !== null || missionActive;
@@ -74,6 +76,11 @@ function App() {
   useEffect(() => {
     missionActiveRef.current = missionActive;
   }, [missionActive]);
+
+  function markApiSuccess() {
+    lastApiSuccessAtRef.current = Date.now();
+    healthFailureCountRef.current = 0;
+  }
 
   useEffect(() => {
     let timeoutId = null;
@@ -149,6 +156,8 @@ function App() {
       const data = await getTelemetry(options);
       const hasActiveVessel = Boolean(data.has_vessel);
 
+      markApiSuccess();
+
       if (hasActiveVessel) {
         vesselLostCountRef.current = 0;
         setTelemetry(data.telemetry ?? null);
@@ -179,7 +188,7 @@ function App() {
   const pollBackendHealth = useCallback(async () => {
     try {
       const data = await getBackendHealth({ timeoutMs: POLL_TIMEOUT_MS });
-      healthFailureCountRef.current = 0;
+      markApiSuccess();
       setBackendHealth({
         state: "online",
         checkedAt: Date.now(),
@@ -205,18 +214,20 @@ function App() {
         return;
       }
 
-      if (healthFailureCountRef.current >= BACKEND_OFFLINE_FAILURE_LIMIT) {
+      const hasRecentApiSuccess =
+        Date.now() - lastApiSuccessAtRef.current < API_RECENT_SUCCESS_MS;
+
+      if (
+        healthFailureCountRef.current >= BACKEND_OFFLINE_FAILURE_LIMIT &&
+        !hasRecentApiSuccess &&
+        !telemetryRef.current
+      ) {
         setBackendHealth({
           state: "offline",
           checkedAt: Date.now(),
           data: null,
           error: "No response from backend",
         });
-
-        if (!telemetryRef.current) {
-          setTelemetry(null);
-          setHasVessel(false);
-        }
 
         setConnectionState("offline");
       } else {
@@ -239,7 +250,7 @@ function App() {
       const missionActionId = data.mission?.action ?? null;
       const missionError = data.mission?.last_error ?? null;
 
-      healthFailureCountRef.current = 0;
+      markApiSuccess();
       setBackendHealth(currentHealth => ({
         ...currentHealth,
         state: "online",
@@ -268,8 +279,9 @@ function App() {
         setActiveActionId(null);
       }
     } catch {
-      setActiveActionId(null);
-      setMissionActive(false);
+      if (!activeActionIdRef.current) {
+        setMissionActive(false);
+      }
     }
   }, []);
 
