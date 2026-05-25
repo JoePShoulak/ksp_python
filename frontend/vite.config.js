@@ -66,8 +66,31 @@ function patchJrtiDashboard(source) {
     .replace(
       "</head>",
       `  <style>
+    html {
+      scrollbar-color: rgba(148, 162, 181, 0.48) transparent;
+      scrollbar-width: thin;
+    }
+
     body {
       padding: 0 !important;
+    }
+
+    *::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+
+    *::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    *::-webkit-scrollbar-thumb {
+      border-radius: 999px;
+      background: rgba(148, 162, 181, 0.42);
+    }
+
+    *::-webkit-scrollbar-thumb:hover {
+      background: rgba(185, 196, 210, 0.62);
     }
 
     header {

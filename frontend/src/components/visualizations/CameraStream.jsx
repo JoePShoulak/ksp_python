@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 
-function CameraStream({ cameras, paused = false }) {
+function CameraStream({ cameras }) {
   const frameRef = useRef(null);
   const selectedCamera = cameras?.selected;
   const streamUrl = getReachableStreamUrl(selectedCamera?.stream_url);
@@ -26,22 +26,15 @@ function CameraStream({ cameras, paused = false }) {
   return (
     <div className="camera-stream">
       <div className="camera-viewport">
-        {paused && (
-          <div className="camera-placeholder camera-paused">
-            <p>Camera paused</p>
-            <span>Mission command in progress.</span>
-          </div>
-        )}
-
-        {!paused && streamUrl && streamKind === "iframe" && (
+        {streamUrl && streamKind === "iframe" && (
           <iframe ref={frameRef} title="Camera stream" src={streamUrl} />
         )}
 
-        {!paused && streamUrl && streamKind !== "iframe" && (
+        {streamUrl && streamKind !== "iframe" && (
           <img src={streamUrl} alt="Camera stream" />
         )}
 
-        {!paused && !streamUrl && (
+        {!streamUrl && (
           <div className="camera-placeholder">
             <p>Camera stream unavailable</p>
             <span>

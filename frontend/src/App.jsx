@@ -16,6 +16,8 @@ import {
 import ActionsPanel from "./components/ActionsPanel";
 import MissionTelemetryPanel from "./components/MissionTelemetryPanel";
 
+const TELEMETRY_OFFLINE_FAILURE_LIMIT = 10;
+
 function App() {
   const [telemetry, setTelemetry] = useState(null);
   const [hasVessel, setHasVessel] = useState(false);
@@ -29,6 +31,7 @@ function App() {
   const activeActionStartedAtRef = useRef(0);
   const visualResetSequenceRef = useRef(null);
   const isPollingRef = useRef(false);
+  const telemetryFailureCountRef = useRef(0);
 
   const isActionRunning = activeActionId !== null || missionActive;
 
@@ -114,6 +117,7 @@ function App() {
       const data = await getTelemetry(options);
       const hasActiveVessel = Boolean(data.has_vessel);
 
+      telemetryFailureCountRef.current = 0;
       setTelemetry(hasActiveVessel ? (data.telemetry ?? null) : null);
       setHasVessel(hasActiveVessel);
       setConnectionState(hasActiveVessel ? "live" : "idle");
@@ -127,9 +131,13 @@ function App() {
         return;
       }
 
-      setTelemetry(null);
-      setHasVessel(false);
-      setConnectionState("offline");
+      telemetryFailureCountRef.current += 1;
+
+      if (telemetryFailureCountRef.current >= TELEMETRY_OFFLINE_FAILURE_LIMIT) {
+        setTelemetry(null);
+        setHasVessel(false);
+        setConnectionState("offline");
+      }
     }
   }, []);
 
@@ -264,7 +272,6 @@ function App() {
         <MissionTelemetryPanel
           telemetry={telemetry}
           hasVessel={hasVessel}
-          cameraPaused={isActionRunning}
           missionActive={missionActive}
           visualResetKey={visualResetKey}
         />

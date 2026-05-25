@@ -180,10 +180,30 @@
   place-items: center;
   min-height: 14rem;
   overflow: hidden;
+  scrollbar-color: rgba(148, 162, 181, 0.48) transparent;
+  scrollbar-width: thin;
   border: 1px solid #1d2731;
   border-radius: var(--radius-sm);
   background: #020407;
   aspect-ratio: 16 / 9;
+}
+
+.camera-viewport::-webkit-scrollbar {
+  width: 0.35rem;
+  height: 0.35rem;
+}
+
+.camera-viewport::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.camera-viewport::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgba(148, 162, 181, 0.42);
+}
+
+.camera-viewport::-webkit-scrollbar-thumb:hover {
+  background: rgba(185, 196, 210, 0.62);
 }
 
 .camera-viewport img,
@@ -209,10 +229,6 @@
 
 .camera-placeholder span {
   font-size: 0.8rem;
-}
-
-.camera-placeholder.camera-paused {
-  border-color: rgba(125, 216, 125, 0.35);
 }
 
 /* Idle state */
