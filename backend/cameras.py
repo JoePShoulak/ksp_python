@@ -170,15 +170,22 @@ def get_jrti_camera_snapshot():
   if not jrti_cameras:
     return None
 
-  selected_camera = next(
-    (camera for camera in jrti_cameras if camera["streaming"]),
-    jrti_cameras[0],
-  )
+  selected_camera = {
+    "id": "jrti-dashboard",
+    "index": None,
+    "part_name": "jrti-dashboard",
+    "label": "JRTI Dashboard",
+    "modules": [],
+    "source": "jrti_dashboard",
+    "streaming": any(camera["streaming"] for camera in jrti_cameras),
+    "stream_url": get_public_jrti_url("/"),
+    "stream_kind": "iframe",
+  }
 
   return {
     "available": True,
     "count": len(jrti_cameras),
-    "selected_index": selected_camera["index"],
+    "selected_index": None,
     "selected": selected_camera,
     "stream_configured": bool(CAMERA_STREAM_URL),
     "source": "jrti",
