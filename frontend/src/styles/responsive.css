@@ -67,7 +67,7 @@
   }
 
   .dashboard-grid {
-    grid-template-columns: clamp(14rem, 17vw, 19rem) minmax(0, 82rem);
+    grid-template-columns: clamp(17rem, 20vw, 23rem) minmax(0, 82rem);
     justify-content: center;
     gap: 1.1rem;
   }
@@ -161,7 +161,7 @@
   }
 
   .dashboard-grid {
-    grid-template-columns: clamp(15rem, 16vw, 20rem) minmax(0, 90rem);
+    grid-template-columns: clamp(18rem, 19vw, 24rem) minmax(0, 90rem);
     gap: 1.2rem;
   }
 
@@ -193,7 +193,7 @@
   }
 
   .dashboard-grid {
-    grid-template-columns: clamp(16rem, 15vw, 21rem) minmax(0, 104rem);
+    grid-template-columns: clamp(19rem, 18vw, 25rem) minmax(0, 104rem);
   }
 
   .app-header {
@@ -236,7 +236,7 @@
   }
 
   .dashboard-grid {
-    grid-template-columns: clamp(12rem, 16vw, 14rem) minmax(0, 1fr);
+    grid-template-columns: clamp(15rem, 19vw, 18rem) minmax(0, 1fr);
     justify-content: center;
   }
 

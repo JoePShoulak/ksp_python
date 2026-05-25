@@ -33,8 +33,11 @@ LAST_ACTION_ERROR = None
 VIEWPORT_REPORTS = {}
 VIEWPORT_LOCK = threading.Lock()
 STARTED_AT = time.time()
-LAST_TELEMETRY_CAPTURED_AT = 0
-TELEMETRY_CACHE_TTL = 0.5
+LAST_TELEMETRY_ERROR = None
+TELEMETRY_STREAM_STARTED = False
+TELEMETRY_STREAM_LOCK = threading.Lock()
+TELEMETRY_STREAM_INTERVAL = 0.25
+TELEMETRY_SLOW_INTERVAL = 1.0
 
 
 def log_backend_lifecycle(message):
@@ -46,7 +49,8 @@ atexit.register(lambda: log_backend_lifecycle("exiting"))
 
 def get_cached_vessel_state():
   snapshot = TLM.get_snapshot()
-  cache_age = time.time() - LAST_TELEMETRY_CAPTURED_AT if LAST_TELEMETRY_CAPTURED_AT else None
+  updated_at = TLM.get_updated_at()
+  cache_age = time.time() - updated_at if updated_at else None
 
   return {
     "has_cached_telemetry": bool(snapshot),
@@ -62,8 +66,68 @@ def build_telemetry_response(snapshot, vessel_check):
     "has_vessel": bool(snapshot),
     "telemetry": snapshot if snapshot else None,
     "vessel_check": vessel_check,
+    "telemetry_error": LAST_TELEMETRY_ERROR,
     **get_cached_vessel_state(),
   })
+
+
+def telemetry_stream_loop():
+  global LAST_TELEMETRY_ERROR
+
+  last_slow_update = 0
+
+  while True:
+    mission = get_registered_mission()
+
+    if mission:
+      time.sleep(TELEMETRY_STREAM_INTERVAL)
+      continue
+
+    try:
+      if TLM.is_initialized():
+        if TLM.sync_active_vessel():
+          now = time.time()
+          include_slow = now - last_slow_update >= TELEMETRY_SLOW_INTERVAL
+          TLM.update("Idle", include_slow=include_slow)
+
+          if include_slow:
+            last_slow_update = now
+
+          LAST_TELEMETRY_ERROR = None
+        else:
+          LAST_TELEMETRY_ERROR = "No active vessel"
+      elif KRPC_QUERY_LOCK.acquire(blocking=False):
+        try:
+          conn, vessel = safe_connect("Telemetry Stream")
+
+          if conn and vessel:
+            TLM.begin(conn, vessel)
+            LAST_TELEMETRY_ERROR = None
+          else:
+            LAST_TELEMETRY_ERROR = "No active vessel"
+        finally:
+          KRPC_QUERY_LOCK.release()
+    except Exception as error:
+      LAST_TELEMETRY_ERROR = str(error)
+
+    time.sleep(TELEMETRY_STREAM_INTERVAL)
+
+
+def ensure_telemetry_stream_started():
+  global TELEMETRY_STREAM_STARTED
+
+  with TELEMETRY_STREAM_LOCK:
+    if TELEMETRY_STREAM_STARTED:
+      return
+
+    TELEMETRY_STREAM_STARTED = True
+
+  thread = threading.Thread(
+    target=telemetry_stream_loop,
+    daemon=True,
+    name="ksp-telemetry-stream",
+  )
+  thread.start()
 
 
 def run_action_thread(action, callback):
@@ -216,6 +280,7 @@ def health():
     "action": action,
     "last_error": last_error,
     "krpc_query_busy": KRPC_QUERY_LOCK.locked(),
+    "telemetry_stream_running": TELEMETRY_STREAM_STARTED,
     **get_cached_vessel_state(),
   })
 
@@ -336,7 +401,7 @@ def revert_to_launch_route():
 
 @app.route("/api/telemetry", methods=["GET"])
 def get_telemetry():
-  global LAST_TELEMETRY_CAPTURED_AT
+  ensure_telemetry_stream_started()
 
   snapshot = TLM.get_snapshot()
   mission = get_registered_mission()
@@ -345,30 +410,9 @@ def get_telemetry():
     if not mission:
       snapshot["status"] = "Idle"
 
-    if time.time() - LAST_TELEMETRY_CAPTURED_AT < TELEMETRY_CACHE_TTL:
-      return build_telemetry_response(snapshot, "cached")
+    return build_telemetry_response(snapshot, "stream")
 
-  if not KRPC_QUERY_LOCK.acquire(blocking=False):
-    return build_telemetry_response(snapshot, "busy")
-
-  try:
-    conn, vessel = safe_connect("Telemetry")
-
-    if not get_registered_mission():
-      abort_active_mission_if_stale(vessel if conn else None)
-
-    if not conn or not vessel:
-      return build_telemetry_response(snapshot, "unavailable")
-
-    try:
-      snapshot = TLM.capture(conn, vessel, "Idle")
-      LAST_TELEMETRY_CAPTURED_AT = time.time()
-    finally:
-      close_connection(conn, stop_warp_first=False)
-  finally:
-    KRPC_QUERY_LOCK.release()
-
-  return build_telemetry_response(snapshot, "fresh")
+  return build_telemetry_response(None, "initializing")
 
 
 # HANDLERS

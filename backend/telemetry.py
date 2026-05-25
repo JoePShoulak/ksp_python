@@ -558,6 +558,7 @@ class Telemetry:
     self._snapshot_vessel_id = None
     self._slow_data = {}
     self._slow_checked_at = 0
+    self._updated_at = 0
     self._initialized = False
 
   def begin(self, conn, vessel):
@@ -644,6 +645,7 @@ class Telemetry:
     self._snapshot_vessel_id = None
     self._slow_data = {}
     self._slow_checked_at = 0
+    self._updated_at = 0
     self._initialized = False
 
   def update_slow_data(self, force=False):
@@ -812,6 +814,7 @@ class Telemetry:
 
     with self._lock:
       self._data = snapshot
+      self._updated_at = time.time()
 
     return snapshot
 
@@ -850,6 +853,7 @@ class Telemetry:
 
     with self._lock:
       self._data.update(values)
+      self._updated_at = time.time()
       
   def is_initialized(self):
     return self._initialized
@@ -857,6 +861,10 @@ class Telemetry:
   def get_snapshot(self):
     with self._lock:
       return dict(self._data)
+
+  def get_updated_at(self):
+    with self._lock:
+      return self._updated_at
 
 
 TLM = Telemetry()

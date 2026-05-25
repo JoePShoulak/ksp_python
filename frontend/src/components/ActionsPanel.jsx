@@ -120,6 +120,7 @@ function ActionsPanel({
 }) {
   const missionSteps = actions.filter(action => action.section !== "sequence");
   const sequences = actions.filter(action => action.section === "sequence");
+  const showBackendDebug = false;
 
   return (
     <div className="actions-column">
@@ -161,9 +162,12 @@ function ActionsPanel({
         </div>
       </Panel>
 
-      <Panel title="Backend">
-        <BackendHealthPanel backendHealth={backendHealth} />
-      </Panel>
+      {/* Keep this debug card available for troubleshooting backend/API health. */}
+      {showBackendDebug && (
+        <Panel title="Backend">
+          <BackendHealthPanel backendHealth={backendHealth} />
+        </Panel>
+      )}
 
       <Panel title="Abort">
         <button
