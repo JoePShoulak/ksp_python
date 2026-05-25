@@ -15,6 +15,38 @@
   }
 }
 
+@media (max-width: 430px) {
+  .app {
+    padding: 0.75rem 0.5rem 1.25rem;
+  }
+
+  .panel,
+  .visualization-subpanel,
+  .vessel-status-column,
+  .numerical-telemetry-group {
+    padding: 0.65rem;
+  }
+
+  h1 {
+    font-size: 1.85rem;
+  }
+
+  .action-group {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .status-details div,
+  .numerical-telemetry-row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.1rem;
+  }
+
+  .status-details strong,
+  .numerical-telemetry-row strong {
+    text-align: left;
+  }
+}
+
 @media (max-width: 959px), (max-aspect-ratio: 6 / 5) {
   .subpanel-camera .camera-viewport {
     /* TODO: revisit mobile JRTI sizing once we can compare phone screenshots. */
@@ -23,7 +55,7 @@
   }
 }
 
-@media (min-width: 960px) and (min-aspect-ratio: 6 / 5) {
+@media (min-width: 960px) and (min-height: 720px) and (min-aspect-ratio: 6 / 5) {
   .app {
     width: min(calc(100vw - 2rem), 112rem);
     padding: 1.25rem 0 2rem;
@@ -119,7 +151,7 @@
   }
 }
 
-@media (min-width: 1280px) and (min-aspect-ratio: 6 / 5) {
+@media (min-width: 1280px) and (min-height: 720px) and (min-aspect-ratio: 6 / 5) {
   h1 {
     font-size: 2.75rem;
   }
@@ -135,14 +167,6 @@
 
   .app-header {
     width: min(100%, 90rem);
-  }
-
-  .subpanel-primary {
-    grid-column: span 6;
-  }
-
-  .subpanel-secondary {
-    grid-column: span 6;
   }
 
   .subpanel-camera {
@@ -163,7 +187,7 @@
   }
 }
 
-@media (min-width: 1520px) and (min-aspect-ratio: 6 / 5) {
+@media (min-width: 1520px) and (min-height: 720px) and (min-aspect-ratio: 6 / 5) {
   .app {
     width: min(calc(100vw - 3rem), 132rem);
   }
@@ -176,7 +200,119 @@
     width: min(100%, 104rem);
   }
 
+  .subpanel-primary {
+    grid-column: span 6;
+  }
+
+  .subpanel-secondary {
+    grid-column: span 6;
+  }
+
   .visualization-subpanel canvas {
     max-width: 34rem;
+  }
+}
+
+@media (min-width: 960px) and (max-height: 719px) and (min-aspect-ratio: 6 / 5) {
+  .app {
+    width: min(calc(100vw - 1.25rem), 80rem);
+    padding: 0.75rem 0 1.25rem;
+  }
+
+  .app-header {
+    width: min(100%, 80rem);
+    margin-bottom: 0.65rem;
+    padding-bottom: 0.35rem;
+  }
+
+  h1 {
+    font-size: 2rem;
+  }
+
+  .dashboard-grid,
+  .visualization-grid,
+  .actions-column {
+    gap: 0.65rem;
+  }
+
+  .dashboard-grid {
+    grid-template-columns: clamp(12rem, 16vw, 14rem) minmax(0, 1fr);
+    justify-content: center;
+  }
+
+  .dashboard-grid > .actions-column {
+    position: sticky;
+    top: 0.75rem;
+  }
+
+  .panel,
+  .visualization-subpanel {
+    padding: 0.65rem;
+  }
+
+  .panel > h2,
+  .visualization-subpanel h3 {
+    margin-bottom: 0.55rem;
+  }
+
+  .actions-panel {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.55rem;
+  }
+
+  .action-group {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.5rem;
+  }
+
+  .action-group-sequence {
+    padding-top: 0.55rem;
+  }
+
+  .action-button {
+    min-height: 2.45rem;
+    padding: 0.48rem 0.6rem;
+    font-size: 0.85rem;
+  }
+
+  .abort-button {
+    min-height: 2.75rem;
+  }
+
+  .vessel-status,
+  .numerical-telemetry {
+    gap: 0.6rem;
+  }
+
+  .vessel-status-column,
+  .numerical-telemetry-group {
+    padding: 0.65rem;
+  }
+
+  .visualization-grid {
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+    grid-auto-flow: dense;
+  }
+
+  .visualization-subpanel {
+    grid-column: span 4;
+  }
+
+  .subpanel-primary,
+  .subpanel-secondary {
+    grid-column: 1 / -1;
+  }
+
+  .subpanel-camera {
+    grid-column: span 8;
+  }
+
+  .subpanel-camera .camera-viewport {
+    aspect-ratio: auto;
+    min-height: clamp(20rem, 62svh, 28rem);
+  }
+
+  .visualization-subpanel canvas {
+    max-width: 24rem;
   }
 }

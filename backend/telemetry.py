@@ -801,7 +801,7 @@ class Telemetry:
 
   def capture(self, conn, vessel, status="nominal"):
     with self._lock:
-      current_status = self._data.get("status", status)
+      current_status = status if status != "nominal" else self._data.get("status", status)
 
     snapshot = get_vessel_snapshot(
       conn,

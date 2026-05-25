@@ -21,7 +21,7 @@ from .constants import (
 )
 from .control import read_autopilot_error, reset_manual_controls
 from .descent import configure_suborbital_landing, warp_through_aerobraking
-from .vessel import stage_has_engine
+from .vessel import stage_has_engine, vessel_is_down
 
 def launch(conn, vessel, guard):
   guard.check(force=True)
@@ -90,6 +90,19 @@ def gravity_turn_to_orbit(conn, vessel, guard):
   while TLM.read("apoapsis") < LAUNCH_TARGET_APOAPSIS:
     guard.check()
     TLM.update("Staging to space")
+
+    if vessel_is_down(vessel) or (TLM.read("altitude") < 100 and TLM.read("vertical_speed") < -1):
+      vessel.control.throttle = 0
+      record_mission_event(
+        "launch_ascent_failed",
+        "Launch",
+        altitude=TLM.read("altitude"),
+        vertical_speed=TLM.read("vertical_speed"),
+        apoapsis=TLM.read("apoapsis"),
+        periapsis=TLM.read("periapsis"),
+        situation=TLM.read("situation"),
+      )
+      raise MissionAborted("Launch stopped because the vessel fell back before reaching orbit")
 
     current_stage = vessel.control.current_stage
     next_stage = current_stage - 1

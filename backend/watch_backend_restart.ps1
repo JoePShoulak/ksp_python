@@ -8,13 +8,17 @@ $ErrorActionPreference = "Stop"
 
 $backendDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repo = Split-Path -Parent $backendDir
-$restartRequest = Join-Path $backendDir ".restart-request"
-$stopRequest = Join-Path $backendDir ".stop-request"
-$pidFile = Join-Path $backendDir ".backend.pid"
-$logFile = Join-Path $backendDir ".backend-supervisor.log"
-$stdoutLog = Join-Path $backendDir ".backend.stdout.log"
-$stderrLog = Join-Path $backendDir ".backend.stderr.log"
+$pythonDeps = Join-Path $repo ".python-deps"
+$runtimeDir = Join-Path $backendDir ".runtime"
+$restartRequest = Join-Path $runtimeDir ".restart-request"
+$stopRequest = Join-Path $runtimeDir ".stop-request"
+$pidFile = Join-Path $runtimeDir "backend.pid"
+$logFile = Join-Path $runtimeDir "supervisor.log"
+$stdoutLog = Join-Path $runtimeDir "backend.stdout.log"
+$stderrLog = Join-Path $runtimeDir "backend.stderr.log"
 $backendProcess = $null
+
+New-Item -ItemType Directory -Force -Path $runtimeDir | Out-Null
 
 function Write-SupervisorLog {
   param([string]$Message)
@@ -68,10 +72,11 @@ function Start-Backend {
 
   $pythonExe = Resolve-Python
   Write-SupervisorLog "Starting backend with $pythonExe"
+  $command = "set PYTHONPATH=$pythonDeps&& `"$pythonExe`" backend\main.py"
 
   $script:backendProcess = Start-Process `
-    -FilePath $pythonExe `
-    -ArgumentList @("backend\main.py") `
+    -FilePath "cmd.exe" `
+    -ArgumentList @("/d", "/s", "/c", $command) `
     -WorkingDirectory $repo `
     -RedirectStandardOutput $stdoutLog `
     -RedirectStandardError $stderrLog `

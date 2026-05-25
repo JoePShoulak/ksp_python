@@ -62,6 +62,7 @@ def read_autopilot_error(vessel):
     return None
 
 def reset_manual_controls(vessel):
+  vessel.control.abort = False
   vessel.control.throttle = 0
   vessel.control.pitch = 0
   vessel.control.yaw = 0

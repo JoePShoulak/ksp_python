@@ -3,6 +3,10 @@ $ErrorActionPreference = "Stop"
 $repo = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 $python = "C:\Users\joeps\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe"
 $port = 5000
+$runtimeDir = Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) ".runtime"
+$pythonDeps = Join-Path $repo ".python-deps"
+
+New-Item -ItemType Directory -Force -Path $runtimeDir | Out-Null
 
 $listeners = @(
   Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue |
@@ -16,11 +20,19 @@ foreach ($processId in $listeners) {
 }
 
 Start-Sleep -Milliseconds 500
-Start-Process `
-  -FilePath $python `
-  -ArgumentList @("backend\main.py") `
+
+$stdoutLog = Join-Path $runtimeDir "backend.stdout.log"
+$stderrLog = Join-Path $runtimeDir "backend.stderr.log"
+$command = "set PYTHONPATH=$pythonDeps&& `"$python`" backend\main.py > `"$stdoutLog`" 2> `"$stderrLog`""
+
+$backendProcess = Start-Process `
+  -FilePath "cmd.exe" `
+  -ArgumentList @("/d", "/s", "/c", $command) `
   -WorkingDirectory $repo `
-  -WindowStyle Hidden
+  -WindowStyle Hidden `
+  -PassThru
+
+Set-Content -Path (Join-Path $runtimeDir "backend.pid") -Value $backendProcess.Id
 
 Start-Sleep -Seconds 2
 Invoke-RestMethod -Uri "http://127.0.0.1:$port/api/status"
