@@ -18,8 +18,11 @@ import ActionsPanel from "./components/ActionsPanel";
 import FullscreenButton from "./components/FullscreenButton";
 import MissionTelemetryPanel from "./components/MissionTelemetryPanel";
 
-const TELEMETRY_OFFLINE_FAILURE_LIMIT = 3;
-const POLL_TIMEOUT_MS = 1500;
+const BACKEND_OFFLINE_FAILURE_LIMIT = 3;
+const VESSEL_LOST_FAILURE_LIMIT = 10;
+const POLL_TIMEOUT_MS = 2500;
+const LIVE_POLL_INTERVAL_MS = 500;
+const IDLE_POLL_INTERVAL_MS = 750;
 
 function App() {
   const [telemetry, setTelemetry] = useState(null);
@@ -30,17 +33,23 @@ function App() {
   const [actionError, setActionError] = useState(null);
   const [visualResetKey, setVisualResetKey] = useState(0);
   const hasVesselRef = useRef(hasVessel);
+  const connectionStateRef = useRef(connectionState);
   const activeActionIdRef = useRef(activeActionId);
   const activeActionStartedAtRef = useRef(0);
   const visualResetSequenceRef = useRef(null);
   const isPollingRef = useRef(false);
   const apiFailureCountRef = useRef(0);
+  const vesselLostCountRef = useRef(0);
 
   const isActionRunning = activeActionId !== null || missionActive;
 
   useEffect(() => {
     hasVesselRef.current = hasVessel;
   }, [hasVessel]);
+
+  useEffect(() => {
+    connectionStateRef.current = connectionState;
+  }, [connectionState]);
 
   useEffect(() => {
     activeActionIdRef.current = activeActionId;
@@ -121,11 +130,21 @@ function App() {
       const hasActiveVessel = Boolean(data.has_vessel);
 
       apiFailureCountRef.current = 0;
-      setTelemetry(hasActiveVessel ? (data.telemetry ?? null) : null);
-      setHasVessel(hasActiveVessel);
-      setConnectionState(hasActiveVessel ? "live" : "idle");
 
-      if (!hasActiveVessel) {
+      if (hasActiveVessel) {
+        vesselLostCountRef.current = 0;
+        setTelemetry(data.telemetry ?? null);
+        setHasVessel(true);
+        setConnectionState("live");
+        return;
+      }
+
+      vesselLostCountRef.current += 1;
+
+      if (!hasVesselRef.current || vesselLostCountRef.current >= VESSEL_LOST_FAILURE_LIMIT) {
+        setTelemetry(null);
+        setHasVessel(false);
+        setConnectionState("idle");
         setActiveActionId(null);
         setMissionActive(false);
       }
@@ -136,7 +155,7 @@ function App() {
 
       apiFailureCountRef.current += 1;
 
-      if (apiFailureCountRef.current >= TELEMETRY_OFFLINE_FAILURE_LIMIT) {
+      if (apiFailureCountRef.current >= BACKEND_OFFLINE_FAILURE_LIMIT) {
         setTelemetry(null);
         setHasVessel(false);
         setConnectionState("offline");
@@ -149,19 +168,21 @@ function App() {
       await getBackendHealth({ timeoutMs: POLL_TIMEOUT_MS });
       apiFailureCountRef.current = 0;
 
-      if (connectionState === "connecting") {
-        setConnectionState("idle");
-      }
+      setConnectionState(currentState =>
+        currentState === "connecting" || currentState === "offline"
+          ? "idle"
+          : currentState,
+      );
     } catch {
       apiFailureCountRef.current += 1;
 
-      if (apiFailureCountRef.current >= TELEMETRY_OFFLINE_FAILURE_LIMIT) {
+      if (apiFailureCountRef.current >= BACKEND_OFFLINE_FAILURE_LIMIT) {
         setTelemetry(null);
         setHasVessel(false);
         setConnectionState("offline");
       }
     }
-  }, [connectionState]);
+  }, []);
 
   const pollMissionStatus = useCallback(async (options = {}) => {
     try {
@@ -247,17 +268,24 @@ function App() {
         isPollingRef.current = true;
 
         try {
-          await Promise.allSettled([
+          const checks = [
             pollMissionStatus({ timeoutMs: POLL_TIMEOUT_MS }),
             pollTelemetry({ timeoutMs: POLL_TIMEOUT_MS }),
-            pollBackendHealth(),
-          ]);
+          ];
+
+          if (connectionStateRef.current !== "live") {
+            checks.push(pollBackendHealth());
+          }
+
+          await Promise.allSettled(checks);
         } finally {
           isPollingRef.current = false;
         }
       }
 
-      const intervalMs = hasVesselRef.current ? 100 : 500;
+      const intervalMs = hasVesselRef.current
+        ? LIVE_POLL_INTERVAL_MS
+        : IDLE_POLL_INTERVAL_MS;
       timeoutId = window.setTimeout(runPoll, intervalMs);
     }
 

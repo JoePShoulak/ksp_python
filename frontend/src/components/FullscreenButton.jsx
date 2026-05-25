@@ -36,7 +36,10 @@ function FullscreenButton() {
       onClick={handleToggleFullscreen}
       aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
       title={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}>
-      <span aria-hidden="true">{isFullscreen ? "x" : "[ ]"}</span>
+      <span
+        className={`fullscreen-icon ${isFullscreen ? "is-exit" : ""}`}
+        aria-hidden="true"
+      />
       <span>{isFullscreen ? "Exit" : "Fullscreen"}</span>
     </button>
   );

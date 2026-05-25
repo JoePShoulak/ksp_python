@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { memo, useEffect, useRef } from "react";
 
 function CameraStream({ cameras }) {
   const frameRef = useRef(null);
@@ -97,4 +97,14 @@ function getReachableStreamUrl(streamUrl) {
   }
 }
 
-export default CameraStream;
+function camerasAreEquivalent(previousProps, nextProps) {
+  const previousCamera = previousProps.cameras?.selected;
+  const nextCamera = nextProps.cameras?.selected;
+
+  return (
+    previousCamera?.stream_url === nextCamera?.stream_url &&
+    previousCamera?.stream_kind === nextCamera?.stream_kind
+  );
+}
+
+export default memo(CameraStream, camerasAreEquivalent);
