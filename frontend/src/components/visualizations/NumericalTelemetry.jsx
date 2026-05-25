@@ -90,8 +90,16 @@ function NumericalTelemetry({ telemetry }) {
           value={formatNewtons(telemetry.available_thrust)}
         />
         <TelemetryRow
-          label="Delta-v"
+          label="Practical dV"
           value={formatMetersPerSecond(telemetry.delta_v)}
+        />
+        <TelemetryRow
+          label="Current dV"
+          value={formatMetersPerSecond(telemetry.delta_v_current)}
+        />
+        <TelemetryRow
+          label="Vacuum dV"
+          value={formatMetersPerSecond(telemetry.delta_v_vacuum)}
         />
         <TelemetryRow
           label="Longitude"
