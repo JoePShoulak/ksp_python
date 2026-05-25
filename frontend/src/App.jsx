@@ -265,9 +265,14 @@ function App() {
       const resetSequence = data.mission?.visual_reset_sequence;
       const isMissionActive = Boolean(data.mission?.active);
       const missionActionId = getMissionActionId(data.mission);
-      const isMissionOrActionActive = isMissionActive || Boolean(missionActionId);
       const missionError = data.mission?.last_error ?? null;
       const vesselLostGracefully = isGracefulVesselLostError(missionError);
+      const hasKnownVessel = hasVesselRef.current || Boolean(telemetryRef.current);
+      const shouldShowMissionAction =
+        !vesselLostGracefully &&
+        hasKnownVessel &&
+        (isMissionActive || Boolean(missionActionId));
+      const isMissionOrActionActive = shouldShowMissionAction;
 
       markApiSuccess();
       setBackendHealth(currentHealth => ({
@@ -286,7 +291,7 @@ function App() {
         setActionError(missionError);
       }
 
-      if (missionActionId) {
+      if (shouldShowMissionAction && missionActionId) {
         setActiveActionId(missionActionId);
       }
 
