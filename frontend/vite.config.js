@@ -63,7 +63,29 @@ function patchJrtiConfig(source) {
 function patchJrtiDashboard(source) {
   return source
     .replace(/<title>Just Read The Instructions<\/title>/g, "<title>Camera Feeds</title>")
-    .replace(/<h1>Just Read The Instructions<\/h1>/g, "<h1>Camera Feeds</h1>");
+    .replace(
+      "</head>",
+      `  <style>
+    header {
+      border-bottom: 0 !important;
+      margin-bottom: 0.75rem !important;
+      padding-bottom: 0 !important;
+      justify-content: center !important;
+    }
+
+    header h1,
+    .global-actions,
+    #groups-bar:empty {
+      display: none !important;
+    }
+
+    header:has(#groups-bar:empty) {
+      display: none !important;
+    }
+  </style>
+</head>`,
+    )
+    .replace(/<h1>Just Read The Instructions<\/h1>/g, "<h1 hidden></h1>");
 }
 
 function patchJrtiCameras(cameras) {
@@ -115,6 +137,7 @@ function jrtiProxyOverride() {
           }
 
           response.setHeader("content-type", "text/html; charset=utf-8");
+          response.setHeader("cache-control", "no-store");
           response.end(patchJrtiDashboard(await jrtiResponse.text()));
         } catch {
           next();
@@ -131,6 +154,7 @@ function jrtiProxyOverride() {
           }
 
           response.setHeader("content-type", "application/json; charset=utf-8");
+          response.setHeader("cache-control", "no-store");
           response.end(JSON.stringify(patchJrtiCameras(await jrtiResponse.json())));
         } catch {
           next();
@@ -147,6 +171,7 @@ function jrtiProxyOverride() {
           }
 
           response.setHeader("content-type", "application/javascript; charset=utf-8");
+          response.setHeader("cache-control", "no-store");
           response.end(patchJrtiConfig(await jrtiResponse.text()));
         } catch {
           next();
@@ -163,6 +188,7 @@ function jrtiProxyOverride() {
           }
 
           response.setHeader("content-type", "application/javascript; charset=utf-8");
+          response.setHeader("cache-control", "no-store");
           response.end(patchJrtiCameraCard(await jrtiResponse.text()));
         } catch {
           next();

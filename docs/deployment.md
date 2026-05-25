@@ -128,7 +128,8 @@ their native live preview in the multicam grid without needing a separate Watch
 tab or recording session.
 The proxied JRTI `/cameras` response is patched so streaming cameras report at
 least one viewer, which triggers JRTI's native live preview path. The embedded
-JRTI dashboard title/header is renamed to `Camera Feeds`.
+JRTI dashboard browser title is renamed to `Camera Feeds`, and its visible header
+is hidden inside our panel.
 
 ## Health Checks
 

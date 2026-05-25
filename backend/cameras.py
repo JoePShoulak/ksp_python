@@ -1,6 +1,6 @@
 import os
 import json
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
 from urllib.request import urlopen
 
 from config import load_env_file
@@ -17,7 +17,7 @@ CAMERA_MODULE_PATTERNS = (
 DEFAULT_CAMERA_STREAM_URL = f"http://{os.environ.get('KRPC_ADDRESS', '192.168.20.104')}:8080/"
 CAMERA_STREAM_URL = os.environ.get("KSP_CAMERA_STREAM_URL") or DEFAULT_CAMERA_STREAM_URL
 CAMERA_STREAM_KIND = os.environ.get("KSP_CAMERA_STREAM_KIND", "image")
-CAMERA_DISCOVERY_TIMEOUT = float(os.environ.get("KSP_CAMERA_DISCOVERY_TIMEOUT", "0.35"))
+CAMERA_DISCOVERY_TIMEOUT = float(os.environ.get("KSP_CAMERA_DISCOVERY_TIMEOUT", "1.5"))
 CAMERA_PUBLIC_PATH_PREFIX = os.environ.get("KSP_CAMERA_PUBLIC_PATH_PREFIX", "/jrti")
 
 
@@ -115,6 +115,24 @@ def get_public_jrti_url(path):
   return f"{prefix}/{path.lstrip('/')}"
 
 
+def get_public_stream_url(url):
+  parsed_url = urlparse(url or "")
+  parsed_base = urlparse(get_jrti_base_url() or "")
+
+  if (
+    CAMERA_PUBLIC_PATH_PREFIX
+    and parsed_url.scheme
+    and parsed_url.netloc == parsed_base.netloc
+  ):
+    path = parsed_url.path or "/"
+    if parsed_url.query:
+      path = f"{path}?{parsed_url.query}"
+
+    return get_public_jrti_url(path)
+
+  return url
+
+
 def read_jrti_cameras():
   cameras_url = get_jrti_camera_url("/cameras")
 
@@ -208,7 +226,7 @@ def get_configured_stream_camera():
 
   return {
     **camera,
-    "stream_url": get_camera_stream_url(camera),
+    "stream_url": get_public_stream_url(get_camera_stream_url(camera)),
     "stream_kind": CAMERA_STREAM_KIND,
   }
 
@@ -251,7 +269,7 @@ def get_camera_snapshot(vessel):
   if selected_camera:
     selected_camera = {
       **selected_camera,
-      "stream_url": get_camera_stream_url(selected_camera),
+      "stream_url": get_public_stream_url(get_camera_stream_url(selected_camera)),
       "stream_kind": CAMERA_STREAM_KIND,
     }
   else:
