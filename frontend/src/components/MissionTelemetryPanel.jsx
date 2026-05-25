@@ -36,16 +36,20 @@ function MissionTelemetryPanel({
   }
 
   const hasCameras = Boolean(telemetry?.cameras?.available);
+  const missionLabel = missionActive ? telemetry?.status : null;
+  const vesselStatusTitle = missionLabel
+    ? `Vessel Status - ${missionLabel}`
+    : "Vessel Status";
 
   return (
     <Panel title="Telemetry">
       <div className="visualization-grid">
-        <VisualizationSubpanel title="Vessel Status" variant="primary">
+        <VisualizationSubpanel title={vesselStatusTitle} variant="primary">
           <VesselStatus telemetry={telemetry} />
         </VisualizationSubpanel>
 
         <VisualizationSubpanel title="Numerical Telemetry" variant="secondary">
-          <NumericalTelemetry telemetry={telemetry} missionActive={missionActive} />
+          <NumericalTelemetry telemetry={telemetry} />
         </VisualizationSubpanel>
 
         {hasCameras && (

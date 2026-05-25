@@ -99,37 +99,35 @@ the frontend, restarts the backend service, and reloads Nginx.
 
 ## Daily Prod Commands
 
-From the project root on your development machine:
-
-```powershell
-.\scripts\prod.ps1 status    # health summary plus backend service status
-.\scripts\prod.ps1 health    # short API health summary only
-.\scripts\prod.ps1 logs      # follow backend logs
-.\scripts\prod.ps1 restart   # restart backend
-.\scripts\prod.ps1 down      # stop backend
-.\scripts\prod.ps1 up        # start backend and reload Nginx
-.\scripts\prod.ps1 deploy    # push current commit to production main
-```
-
-The same commands are available from Git Bash or Ubuntu-style shells:
+From Git Bash in the project root on your development machine:
 
 ```bash
-bash scripts/prod status
-bash scripts/prod health
-bash scripts/prod logs
-bash scripts/prod restart
-bash scripts/prod down
-bash scripts/prod up
+bash scripts/prod status    # health summary plus backend service status
+bash scripts/prod health    # short API health summary only
+bash scripts/prod logs      # follow backend logs
+bash scripts/prod restart   # restart backend
+bash scripts/prod down      # stop backend
+bash scripts/prod up        # start backend and reload Nginx
+bash scripts/prod repair-sudo # refresh prod sudo permissions
+bash scripts/prod deploy    # push current commit to production main
+```
+
+If `up`, `down`, or `logs` says the `ksp` user is not allowed to run sudo,
+deploy once and refresh the server permissions:
+
+```bash
 bash scripts/prod deploy
+bash scripts/prod repair-sudo
 ```
 
-Optional local aliases:
+Optional local alias:
 
-```powershell
-function kprod { & C:\Users\joeps\coding\ksp_python\scripts\prod.ps1 @args }
-kprod status
-kprod deploy
+```bash
+bash scripts/install-prod-alias
+source ~/.bashrc
 ```
+
+That installs:
 
 ```bash
 alias kprod='bash /c/Users/joeps/coding/ksp_python/scripts/prod'

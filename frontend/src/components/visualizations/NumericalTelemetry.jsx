@@ -26,7 +26,7 @@ function TelemetryRow({ label, value }) {
   );
 }
 
-function NumericalTelemetry({ telemetry, missionActive = false }) {
+function NumericalTelemetry({ telemetry }) {
   if (!telemetry) {
     return <p>No telemetry yet.</p>;
   }
@@ -72,10 +72,6 @@ function NumericalTelemetry({ telemetry, missionActive = false }) {
       </TelemetryGroup>
 
       <TelemetryGroup title="Control">
-        <TelemetryRow
-          label="Mission"
-          value={missionActive ? (telemetry.status ?? EMPTY_VALUE) : "Idle"}
-        />
         <TelemetryRow
           label="Warp"
           value={telemetry.warp?.label ?? EMPTY_VALUE}

@@ -6,8 +6,20 @@ HOST_NAME="${KSP_PROD_SSH:-ksp@192.168.20.105}"
 PROD_URL="${KSP_PROD_URL:-http://192.168.20.105:5173}"
 BRANCH="${KSP_PROD_BRANCH:-main}"
 
+SUDO_HELP="Prod sudo permissions may need to be refreshed. Run: bash scripts/prod deploy, then bash scripts/prod repair-sudo"
+
 prod_ssh() {
   ssh "$HOST_NAME" "$@"
+}
+
+run_remote() {
+  local command="$1"
+
+  if ! prod_ssh "$command"; then
+    echo
+    echo "$SUDO_HELP"
+    return 1
+  fi
 }
 
 show_health() {
@@ -56,23 +68,27 @@ case "$COMMAND" in
     show_health
     ;;
   up)
-    prod_ssh "sudo systemctl start ksp-backend && sudo nginx -t && sudo systemctl reload nginx"
+    run_remote "sudo systemctl start ksp-backend && sudo nginx -t && sudo systemctl reload nginx"
     show_health
     ;;
   down)
-    prod_ssh "sudo systemctl stop ksp-backend"
+    run_remote "sudo systemctl stop ksp-backend"
     echo "Backend stopped. The frontend may still load, but API calls will be offline."
     ;;
   restart)
-    prod_ssh "sudo systemctl restart ksp-backend"
+    run_remote "sudo systemctl restart ksp-backend"
     show_health
     ;;
   reload)
-    prod_ssh "sudo nginx -t && sudo systemctl reload nginx"
+    run_remote "sudo nginx -t && sudo systemctl reload nginx"
     echo "Nginx reloaded."
     ;;
   logs)
-    prod_ssh "sudo journalctl -u ksp-backend -n 120 -f"
+    run_remote "sudo journalctl -u ksp-backend -n 120 -f"
+    ;;
+  repair-sudo)
+    run_remote "sudo /usr/local/sbin/ksp-control-panel-install-system-config"
+    echo "Prod sudo permissions refreshed."
     ;;
   deploy|update)
     git push prod "HEAD:$BRANCH"
@@ -81,7 +97,7 @@ case "$COMMAND" in
     ssh "$HOST_NAME"
     ;;
   *)
-    echo "Usage: scripts/prod [status|health|up|down|restart|reload|logs|deploy|update|ssh]"
+    echo "Usage: scripts/prod [status|health|up|down|restart|reload|logs|repair-sudo|deploy|update|ssh]"
     exit 2
     ;;
 esac
