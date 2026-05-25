@@ -97,6 +97,46 @@ git push prod main
 The server-side hook checks out `main`, installs backend dependencies, builds
 the frontend, restarts the backend service, and reloads Nginx.
 
+## Daily Prod Commands
+
+From the project root on your development machine:
+
+```powershell
+.\scripts\prod.ps1 status    # health summary plus backend service status
+.\scripts\prod.ps1 health    # short API health summary only
+.\scripts\prod.ps1 logs      # follow backend logs
+.\scripts\prod.ps1 restart   # restart backend
+.\scripts\prod.ps1 down      # stop backend
+.\scripts\prod.ps1 up        # start backend and reload Nginx
+.\scripts\prod.ps1 deploy    # push current commit to production main
+```
+
+The same commands are available from Git Bash or Ubuntu-style shells:
+
+```bash
+bash scripts/prod status
+bash scripts/prod health
+bash scripts/prod logs
+bash scripts/prod restart
+bash scripts/prod down
+bash scripts/prod up
+bash scripts/prod deploy
+```
+
+Optional local aliases:
+
+```powershell
+function kprod { & C:\Users\joeps\coding\ksp_python\scripts\prod.ps1 @args }
+kprod status
+kprod deploy
+```
+
+```bash
+alias kprod='bash /c/Users/joeps/coding/ksp_python/scripts/prod'
+kprod status
+kprod deploy
+```
+
 ## Manual Deploy
 
 If you already have the latest code on the server:
@@ -123,13 +163,9 @@ absolute paths internally, so these routes must be proxied too.
 
 The proxied JRTI `js/config.js` is lightly patched by dev/prod proxy config so
 multicam snapshots refresh every `500ms` instead of JRTI's default `10000ms`.
-The proxied JRTI `js/camera-card.js` is also patched so streaming cameras start
-their native live preview in the multicam grid without needing a separate Watch
-tab or recording session.
-The proxied JRTI `/cameras` response is patched so streaming cameras report at
-least one viewer, which triggers JRTI's native live preview path. The embedded
-JRTI dashboard browser title is renamed to `Camera Feeds`, and its visible header
-is hidden inside our panel.
+The embedded JRTI dashboard browser title is renamed to `Camera Feeds`, and its
+visible header/settings chrome is hidden inside our panel while preserving the
+controls inside each camera card.
 
 ## Health Checks
 

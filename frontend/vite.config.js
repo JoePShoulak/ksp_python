@@ -101,15 +101,10 @@ function patchJrtiDashboard(source) {
     header,
     nav,
     footer,
-    form,
-    button,
     #controls,
     #settings,
-    #recordings,
     #error,
     #empty,
-    #cameras-offline,
-    [data-section="recordings"],
     [data-section="settings"] {
       display: none !important;
     }

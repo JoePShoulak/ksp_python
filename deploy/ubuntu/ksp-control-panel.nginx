@@ -44,23 +44,7 @@ server {
     add_header Cache-Control "no-store";
     sub_filter "<title>Just Read The Instructions</title>" "<title>Camera Feeds</title>";
     sub_filter "<h1>Just Read The Instructions</h1>" "<h1 hidden></h1>";
-    sub_filter "</head>" "<style>html{scrollbar-color:rgba(148,162,181,.48) transparent;scrollbar-width:thin}body{padding:0!important}*::-webkit-scrollbar{width:6px;height:6px}*::-webkit-scrollbar-track{background:transparent}*::-webkit-scrollbar-thumb{border-radius:999px;background:rgba(148,162,181,.42)}*::-webkit-scrollbar-thumb:hover{background:rgba(185,196,210,.62)}header{display:none!important}#cameras-live,#cameras-offline{gap:1rem!important}#error:empty,#empty:empty{display:none!important}</style></head>";
-  }
-
-  location = /cameras {
-    proxy_pass http://192.168.20.104:8080/cameras;
-    proxy_http_version 1.1;
-    proxy_set_header Host 192.168.20.104:8080;
-    proxy_set_header X-Real-IP $remote_addr;
-    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-    proxy_set_header X-Forwarded-Proto $scheme;
-    proxy_buffering off;
-    proxy_cache off;
-    proxy_set_header Accept-Encoding "";
-    add_header Cache-Control "no-store";
-    sub_filter_once off;
-    sub_filter_types application/json;
-    sub_filter "\"viewerCount\":0" "\"viewerCount\":1";
+    sub_filter "</head>" "<style>html{scrollbar-color:rgba(148,162,181,.48) transparent;scrollbar-width:thin}body{margin:0!important;padding:0!important;background:#0f151b!important;overflow:auto!important}*::-webkit-scrollbar{width:5px;height:5px}*::-webkit-scrollbar-track{background:transparent}*::-webkit-scrollbar-thumb{border-radius:999px;background:rgba(148,162,181,.36)}*::-webkit-scrollbar-thumb:hover{background:rgba(185,196,210,.62)}header,nav,footer,#controls,#settings,#error,#empty,[data-section=settings]{display:none!important}main,#app,#root{margin:0!important;padding:0!important;max-width:none!important;background:transparent!important}#cameras-live{display:grid!important;grid-template-columns:repeat(auto-fit,minmax(18rem,1fr))!important;gap:.9rem!important;margin:0!important;padding:.65rem!important}.camera-card,camera-card{border-radius:8px!important;border-color:rgba(148,162,181,.22)!important;background:#111820!important;min-height:17rem!important}.camera-card video,.camera-card img,camera-card video,camera-card img{border-radius:6px!important;min-height:10rem!important;object-fit:cover!important}@media (min-width:1100px){#cameras-live{grid-template-columns:repeat(auto-fit,minmax(20rem,1fr))!important}.camera-card,camera-card{min-height:18.5rem!important}.camera-card video,.camera-card img,camera-card video,camera-card img{min-height:11.5rem!important}}</style></head>";
   }
 
   location ~ ^/(camera|cameras|session|viewer\.html|js|css|images|recordings)(/|$) {
@@ -90,26 +74,6 @@ server {
     sub_filter_once on;
     sub_filter_types application/javascript text/javascript;
     sub_filter "export const SNAPSHOT_REFRESH_MS = 10000;" "export const SNAPSHOT_REFRESH_MS = 500;";
-  }
-
-  location = /js/camera-card.js {
-    proxy_pass http://192.168.20.104:8080/js/camera-card.js;
-    proxy_http_version 1.1;
-    proxy_set_header Host 192.168.20.104:8080;
-    proxy_set_header X-Real-IP $remote_addr;
-    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-    proxy_set_header X-Forwarded-Proto $scheme;
-    proxy_buffering off;
-    proxy_cache off;
-    proxy_set_header Accept-Encoding "";
-    add_header Cache-Control "no-store";
-    sub_filter_once off;
-    sub_filter_types application/javascript text/javascript;
-    sub_filter "this._snapshot.start();" "this._snapshot.start(); if (this.streaming) this._startLivePreview();";
-    sub_filter "if (this._viewerCount > 0) {" "if (this.streaming || this._viewerCount > 0) {";
-    sub_filter "if (this._viewerCount > 0 && !recActive) {" "if ((this.streaming || this._viewerCount > 0) && !recActive) {";
-    sub_filter "} else if (this._viewerCount === 0) {" "} else if (!this.streaming && this._viewerCount === 0) {";
-    sub_filter "statusEl.textContent = this._viewerCount > 0 ? 'Watching' : 'Idle';" "statusEl.textContent = this._viewerCount > 0 ? 'Watching' : (this.streaming ? 'Live' : 'Idle');";
   }
 
   location / {

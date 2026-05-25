@@ -1,0 +1,87 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+COMMAND="${1:-status}"
+HOST_NAME="${KSP_PROD_SSH:-ksp@192.168.20.105}"
+PROD_URL="${KSP_PROD_URL:-http://192.168.20.105:5173}"
+BRANCH="${KSP_PROD_BRANCH:-main}"
+
+prod_ssh() {
+  ssh "$HOST_NAME" "$@"
+}
+
+show_health() {
+  python3 - "$PROD_URL/api/health" <<'PY'
+import json
+import sys
+import urllib.request
+
+url = sys.argv[1]
+try:
+    with urllib.request.urlopen(url, timeout=5) as response:
+        health = json.load(response)
+except Exception as exc:
+    print(f"Backend health is unreachable at {url}")
+    print(exc)
+    raise SystemExit(1)
+
+backend = "online" if health.get("ok") else "not ok"
+mission = "active" if health.get("mission_active") else "idle"
+action = health.get("action") or "none"
+vessel = health.get("cached_vessel_name") or "none"
+telemetry_age = health.get("telemetry_cache_age")
+telemetry_label = f"{telemetry_age:.1f}s" if isinstance(telemetry_age, (int, float)) else "unknown"
+krpc = health.get("krpc_connections") or {}
+uptime = int(health.get("uptime_seconds") or 0)
+
+print(f"Backend:        {backend}")
+print(f"Mission:        {mission}")
+print(f"Action:         {action}")
+print(f"Vessel:         {vessel}")
+print(f"Telemetry age:  {telemetry_label}")
+print(f"kRPC streams:   {krpc.get('open_count', 'unknown')} open")
+print(f"Uptime:         {uptime}s")
+PY
+}
+
+case "$COMMAND" in
+  status)
+    echo "Production health"
+    show_health
+    echo
+    echo "Backend service"
+    prod_ssh "systemctl --no-pager --full status ksp-backend || true"
+    ;;
+  health)
+    show_health
+    ;;
+  up)
+    prod_ssh "sudo systemctl start ksp-backend && sudo nginx -t && sudo systemctl reload nginx"
+    show_health
+    ;;
+  down)
+    prod_ssh "sudo systemctl stop ksp-backend"
+    echo "Backend stopped. The frontend may still load, but API calls will be offline."
+    ;;
+  restart)
+    prod_ssh "sudo systemctl restart ksp-backend"
+    show_health
+    ;;
+  reload)
+    prod_ssh "sudo nginx -t && sudo systemctl reload nginx"
+    echo "Nginx reloaded."
+    ;;
+  logs)
+    prod_ssh "sudo journalctl -u ksp-backend -n 120 -f"
+    ;;
+  deploy|update)
+    git push prod "HEAD:$BRANCH"
+    ;;
+  ssh)
+    ssh "$HOST_NAME"
+    ;;
+  *)
+    echo "Usage: scripts/prod [status|health|up|down|restart|reload|logs|deploy|update|ssh]"
+    exit 2
+    ;;
+esac

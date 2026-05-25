@@ -45,7 +45,7 @@ fi
 install -m 0755 "$SCRIPT_DIR/install-system-config.sh" /usr/local/sbin/ksp-control-panel-install-system-config
 
 cat >/etc/sudoers.d/ksp-control-panel-deploy <<EOF
-$DEPLOY_USER ALL=(root) NOPASSWD: /usr/local/sbin/ksp-control-panel-install-system-config, /bin/systemctl restart ksp-backend, /bin/systemctl reload nginx, /usr/bin/systemctl restart ksp-backend, /usr/bin/systemctl reload nginx, /usr/sbin/nginx -t
+$DEPLOY_USER ALL=(root) NOPASSWD: /usr/local/sbin/ksp-control-panel-install-system-config, /bin/systemctl start ksp-backend, /bin/systemctl stop ksp-backend, /bin/systemctl restart ksp-backend, /bin/systemctl reload nginx, /usr/bin/systemctl start ksp-backend, /usr/bin/systemctl stop ksp-backend, /usr/bin/systemctl restart ksp-backend, /usr/bin/systemctl reload nginx, /usr/sbin/nginx -t, /bin/journalctl -u ksp-backend -n 120 -f, /usr/bin/journalctl -u ksp-backend -n 120 -f
 EOF
 chmod 0440 /etc/sudoers.d/ksp-control-panel-deploy
 
