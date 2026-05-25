@@ -5,7 +5,7 @@ const JRTI_TARGET = "http://192.168.20.104:8080";
 const JRTI_SNAPSHOT_REFRESH_MS = 500;
 
 export default defineConfig({
-  plugins: [react(), jrtiConfigOverride()],
+  plugins: [react(), jrtiProxyOverride()],
   server: {
     proxy: {
       "/api": {
@@ -60,6 +60,19 @@ function patchJrtiConfig(source) {
   );
 }
 
+function patchJrtiDashboard(source) {
+  return source
+    .replace(/<title>Just Read The Instructions<\/title>/g, "<title>Camera Feeds</title>")
+    .replace(/<h1>Just Read The Instructions<\/h1>/g, "<h1>Camera Feeds</h1>");
+}
+
+function patchJrtiCameras(cameras) {
+  return cameras.map(camera => ({
+    ...camera,
+    viewerCount: camera.streaming ? Math.max(1, Number(camera.viewerCount) || 0) : camera.viewerCount,
+  }));
+}
+
 function patchJrtiCameraCard(source) {
   return source
     .replace(
@@ -88,10 +101,42 @@ function patchJrtiCameraCard(source) {
     );
 }
 
-function jrtiConfigOverride() {
+function jrtiProxyOverride() {
   return {
-    name: "jrti-config-override",
+    name: "jrti-proxy-override",
     configureServer(server) {
+      server.middlewares.use("/jrti/", async (_request, response, next) => {
+        try {
+          const jrtiResponse = await fetch(`${JRTI_TARGET}/`);
+
+          if (!jrtiResponse.ok) {
+            next();
+            return;
+          }
+
+          response.setHeader("content-type", "text/html; charset=utf-8");
+          response.end(patchJrtiDashboard(await jrtiResponse.text()));
+        } catch {
+          next();
+        }
+      });
+
+      server.middlewares.use("/cameras", async (_request, response, next) => {
+        try {
+          const jrtiResponse = await fetch(`${JRTI_TARGET}/cameras`);
+
+          if (!jrtiResponse.ok) {
+            next();
+            return;
+          }
+
+          response.setHeader("content-type", "application/json; charset=utf-8");
+          response.end(JSON.stringify(patchJrtiCameras(await jrtiResponse.json())));
+        } catch {
+          next();
+        }
+      });
+
       server.middlewares.use("/js/config.js", async (_request, response, next) => {
         try {
           const jrtiResponse = await fetch(`${JRTI_TARGET}/js/config.js`);
