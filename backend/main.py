@@ -1,6 +1,8 @@
+import atexit
 import threading
+import time
 
-from flask import Flask, jsonify  # type: ignore
+from flask import Flask, jsonify, request  # type: ignore
 
 from krpc_utils import close_connection, safe_connect, safe_value, stop_warp
 from mission_state import (
@@ -27,6 +29,15 @@ ACTION_LOCK = threading.Lock()
 ACTION_THREAD = None
 ACTIVE_ACTION = None
 LAST_ACTION_ERROR = None
+VIEWPORT_REPORTS = {}
+VIEWPORT_LOCK = threading.Lock()
+
+
+def log_backend_lifecycle(message):
+  print(f"[backend] {message}", flush=True)
+
+
+atexit.register(lambda: log_backend_lifecycle("exiting"))
 
 
 def run_action_thread(action, callback):
@@ -79,6 +90,50 @@ def run_action(action, callback, message):
     "started": True,
     "message": message,
   }), 202
+
+
+@app.route("/api/viewports", methods=["GET", "POST"])
+def viewports():
+  if request.method == "POST":
+    data = request.get_json(silent=True) or {}
+    client_id = str(data.get("client_id") or request.remote_addr or "unknown")
+
+    report = {
+      **data,
+      "client_id": client_id,
+      "remote_addr": request.remote_addr,
+      "reported_at": time.time(),
+    }
+
+    with VIEWPORT_LOCK:
+      VIEWPORT_REPORTS[client_id] = report
+
+    print(
+      "[viewport] "
+      f"{client_id} "
+      f"viewport={data.get('viewport_width')}x{data.get('viewport_height')} "
+      f"screen={data.get('screen_width')}x{data.get('screen_height')} "
+      f"dpr={data.get('device_pixel_ratio')} "
+      f"orientation={data.get('orientation')}",
+      flush=True,
+    )
+
+    return jsonify({
+      "ok": True,
+      "viewport": report,
+    })
+
+  with VIEWPORT_LOCK:
+    reports = sorted(
+      VIEWPORT_REPORTS.values(),
+      key=lambda report: report.get("reported_at", 0),
+      reverse=True,
+    )
+
+  return jsonify({
+    "ok": True,
+    "viewports": reports,
+  })
 
 @app.route("/api/status", methods=["GET"])
 def status():
@@ -214,9 +269,13 @@ def revert_to_launch_route():
 @app.route("/api/telemetry", methods=["GET"])
 def get_telemetry():
   snapshot = TLM.get_snapshot()
+  mission = get_registered_mission()
 
   if snapshot:
-    if get_registered_mission() or TLM.has_active_vessel():
+    if mission or TLM.has_active_vessel():
+      if not mission:
+        snapshot["status"] = "Idle"
+
       return jsonify({
         "ok": True,
         "has_vessel": True,
@@ -237,7 +296,7 @@ def get_telemetry():
       })
 
     try:
-      snapshot = TLM.capture(conn, vessel)
+      snapshot = TLM.capture(conn, vessel, "Idle")
     finally:
       close_connection(conn, stop_warp_first=False)
 
@@ -267,10 +326,11 @@ def internal_error(error):
 
 # MAIN
 if __name__ == "__main__":
+  log_backend_lifecycle("starting")
   app.run(
     host="0.0.0.0",
     port=5000,
-    debug=True,
+    debug=False,
     threaded=True,
     use_reloader=False,
   )

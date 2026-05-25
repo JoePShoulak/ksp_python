@@ -56,3 +56,14 @@ export async function getTelemetry(options = {}) {
 export async function getMissionStatus(options = {}) {
   return fetchJson("/api/mission", options);
 }
+
+export async function reportViewport(viewport) {
+  return fetchJson("/api/viewports", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(viewport),
+    keepalive: true,
+  });
+}

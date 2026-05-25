@@ -94,12 +94,9 @@
     padding: 0.8rem;
   }
 
-  .subpanel-primary {
-    grid-column: span 7;
-  }
-
+  .subpanel-primary,
   .subpanel-secondary {
-    grid-column: span 5;
+    grid-column: 1 / -1;
   }
 
   .subpanel-camera {
@@ -108,11 +105,6 @@
 
   .visualization-subpanel canvas {
     max-width: 30rem;
-  }
-
-  .vessel-status {
-    grid-template-columns: minmax(17rem, 0.86fr) minmax(18rem, 1.14fr);
-    gap: 0.75rem;
   }
 
   .numerical-telemetry {
@@ -159,6 +151,11 @@
 
   .numerical-telemetry {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .vessel-status {
+    grid-template-columns: minmax(17rem, 0.86fr) minmax(18rem, 1.14fr);
+    gap: 0.75rem;
   }
 
   .visualization-grid {

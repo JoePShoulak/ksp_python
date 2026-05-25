@@ -25,7 +25,12 @@ function IdleTelemetryPanel() {
   );
 }
 
-function MissionTelemetryPanel({ telemetry, hasVessel, visualResetKey }) {
+function MissionTelemetryPanel({
+  telemetry,
+  hasVessel,
+  missionActive,
+  visualResetKey,
+}) {
   if (!hasVessel) {
     return <IdleTelemetryPanel />;
   }
@@ -40,7 +45,7 @@ function MissionTelemetryPanel({ telemetry, hasVessel, visualResetKey }) {
         </VisualizationSubpanel>
 
         <VisualizationSubpanel title="Numerical Telemetry" variant="secondary">
-          <NumericalTelemetry telemetry={telemetry} />
+          <NumericalTelemetry telemetry={telemetry} missionActive={missionActive} />
         </VisualizationSubpanel>
 
         {hasCameras && (

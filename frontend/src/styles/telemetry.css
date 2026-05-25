@@ -82,8 +82,8 @@
 .status-details div,
 .numerical-telemetry-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 0.1rem;
+  grid-template-columns: minmax(6.25rem, max-content) minmax(0, 1fr);
+  gap: 0.65rem;
   border-bottom: 1px solid #222d37;
   padding-bottom: 0.35rem;
   align-items: baseline;
@@ -101,6 +101,11 @@
   font-weight: 700;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.status-details strong {
+  overflow-wrap: anywhere;
   white-space: normal;
 }
 
