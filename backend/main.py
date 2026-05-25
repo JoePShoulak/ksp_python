@@ -1,4 +1,5 @@
 import atexit
+import os
 import threading
 import time
 
@@ -31,6 +32,7 @@ ACTIVE_ACTION = None
 LAST_ACTION_ERROR = None
 VIEWPORT_REPORTS = {}
 VIEWPORT_LOCK = threading.Lock()
+STARTED_AT = time.time()
 
 
 def log_backend_lifecycle(message):
@@ -158,9 +160,22 @@ def status():
 
 @app.route("/api/health", methods=["GET"])
 def health():
+  mission = get_active_mission_status()
+
+  with ACTION_LOCK:
+    action = ACTIVE_ACTION if ACTION_THREAD and ACTION_THREAD.is_alive() else None
+    last_error = LAST_ACTION_ERROR
+
   return jsonify({
     "ok": True,
     "message": "KSP Interface API is running",
+    "pid": os.getpid(),
+    "started_at": STARTED_AT,
+    "server_time": time.time(),
+    "uptime_seconds": time.time() - STARTED_AT,
+    "mission_active": bool(mission.get("active")),
+    "action": action,
+    "last_error": last_error,
   })
 
 

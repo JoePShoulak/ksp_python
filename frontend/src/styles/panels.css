@@ -115,6 +115,92 @@
   background: rgba(105, 30, 36, 0.95);
 }
 
+.backend-health {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.backend-health-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  color: var(--text-soft);
+  font-size: 0.85rem;
+}
+
+.backend-health-status.online .connection-dot {
+  background: var(--accent);
+  box-shadow: 0 0 0.65rem rgba(125, 216, 125, 0.62);
+}
+
+.backend-health-status.offline .connection-dot {
+  background: var(--danger);
+  box-shadow: 0 0 0.65rem rgba(255, 104, 104, 0.48);
+}
+
+.backend-health-status.checking .connection-dot {
+  background: var(--accent-amber);
+  box-shadow: 0 0 0.65rem rgba(231, 199, 90, 0.45);
+}
+
+.backend-health-details {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.backend-health-details div {
+  display: grid;
+  grid-template-columns: minmax(4.5rem, max-content) minmax(0, 1fr);
+  gap: 0.55rem;
+  align-items: baseline;
+  border-bottom: 1px solid #222d37;
+  padding-bottom: 0.3rem;
+}
+
+.backend-health-details span {
+  color: var(--text-muted);
+  font-size: 0.78rem;
+}
+
+.backend-health-details strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.backend-health-note {
+  border: 1px solid rgba(255, 104, 104, 0.42);
+  border-radius: var(--radius-sm);
+  padding: 0.55rem;
+  background: rgba(73, 22, 27, 0.48);
+  color: #ffd7d7;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.backend-health-link {
+  display: inline-flex;
+  justify-content: center;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  padding: 0.5rem 0.65rem;
+  background: rgba(13, 17, 23, 0.78);
+  color: var(--text-soft);
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.backend-health-link:hover {
+  background: var(--bg-control-hover);
+  color: var(--heading);
+}
+
 /* Telemetry panels */
 
 .visualization-grid {

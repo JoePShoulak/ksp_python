@@ -21,8 +21,10 @@ import MissionTelemetryPanel from "./components/MissionTelemetryPanel";
 const BACKEND_OFFLINE_FAILURE_LIMIT = 3;
 const VESSEL_LOST_FAILURE_LIMIT = 10;
 const POLL_TIMEOUT_MS = 2500;
-const LIVE_POLL_INTERVAL_MS = 500;
+const LIVE_POLL_INTERVAL_MS = 750;
 const IDLE_POLL_INTERVAL_MS = 750;
+const MISSION_STATUS_INTERVAL_MS = 1500;
+const BACKEND_HEALTH_INTERVAL_MS = 5000;
 
 function App() {
   const [telemetry, setTelemetry] = useState(null);
@@ -32,13 +34,23 @@ function App() {
   const [missionActive, setMissionActive] = useState(false);
   const [actionError, setActionError] = useState(null);
   const [visualResetKey, setVisualResetKey] = useState(0);
+  const [backendHealth, setBackendHealth] = useState({
+    state: "checking",
+    checkedAt: null,
+    data: null,
+    error: null,
+  });
   const hasVesselRef = useRef(hasVessel);
+  const telemetryRef = useRef(telemetry);
   const connectionStateRef = useRef(connectionState);
   const activeActionIdRef = useRef(activeActionId);
+  const missionActiveRef = useRef(missionActive);
   const activeActionStartedAtRef = useRef(0);
+  const lastMissionStatusPollRef = useRef(0);
+  const lastBackendHealthPollRef = useRef(0);
   const visualResetSequenceRef = useRef(null);
   const isPollingRef = useRef(false);
-  const apiFailureCountRef = useRef(0);
+  const healthFailureCountRef = useRef(0);
   const vesselLostCountRef = useRef(0);
 
   const isActionRunning = activeActionId !== null || missionActive;
@@ -48,12 +60,20 @@ function App() {
   }, [hasVessel]);
 
   useEffect(() => {
+    telemetryRef.current = telemetry;
+  }, [telemetry]);
+
+  useEffect(() => {
     connectionStateRef.current = connectionState;
   }, [connectionState]);
 
   useEffect(() => {
     activeActionIdRef.current = activeActionId;
   }, [activeActionId]);
+
+  useEffect(() => {
+    missionActiveRef.current = missionActive;
+  }, [missionActive]);
 
   useEffect(() => {
     let timeoutId = null;
@@ -129,8 +149,6 @@ function App() {
       const data = await getTelemetry(options);
       const hasActiveVessel = Boolean(data.has_vessel);
 
-      apiFailureCountRef.current = 0;
-
       if (hasActiveVessel) {
         vesselLostCountRef.current = 0;
         setTelemetry(data.telemetry ?? null);
@@ -142,8 +160,11 @@ function App() {
       vesselLostCountRef.current += 1;
 
       if (!hasVesselRef.current || vesselLostCountRef.current >= VESSEL_LOST_FAILURE_LIMIT) {
-        setTelemetry(null);
-        setHasVessel(false);
+        if (!telemetryRef.current) {
+          setTelemetry(null);
+          setHasVessel(false);
+        }
+
         setConnectionState("idle");
         setActiveActionId(null);
         setMissionActive(false);
@@ -152,21 +173,19 @@ function App() {
       if (error.name === "AbortError") {
         return;
       }
-
-      apiFailureCountRef.current += 1;
-
-      if (apiFailureCountRef.current >= BACKEND_OFFLINE_FAILURE_LIMIT) {
-        setTelemetry(null);
-        setHasVessel(false);
-        setConnectionState("offline");
-      }
     }
   }, []);
 
   const pollBackendHealth = useCallback(async () => {
     try {
-      await getBackendHealth({ timeoutMs: POLL_TIMEOUT_MS });
-      apiFailureCountRef.current = 0;
+      const data = await getBackendHealth({ timeoutMs: POLL_TIMEOUT_MS });
+      healthFailureCountRef.current = 0;
+      setBackendHealth({
+        state: "online",
+        checkedAt: Date.now(),
+        data,
+        error: null,
+      });
 
       setConnectionState(currentState =>
         currentState === "connecting" || currentState === "offline"
@@ -174,12 +193,29 @@ function App() {
           : currentState,
       );
     } catch {
-      apiFailureCountRef.current += 1;
+      healthFailureCountRef.current += 1;
 
-      if (apiFailureCountRef.current >= BACKEND_OFFLINE_FAILURE_LIMIT) {
-        setTelemetry(null);
-        setHasVessel(false);
+      if (healthFailureCountRef.current >= BACKEND_OFFLINE_FAILURE_LIMIT) {
+        setBackendHealth({
+          state: "offline",
+          checkedAt: Date.now(),
+          data: null,
+          error: "No response from backend",
+        });
+
+        if (!telemetryRef.current) {
+          setTelemetry(null);
+          setHasVessel(false);
+        }
+
         setConnectionState("offline");
+      } else {
+        setBackendHealth(currentHealth => ({
+          ...currentHealth,
+          state: currentHealth.state === "online" ? "online" : "checking",
+          checkedAt: Date.now(),
+          error: "Health check missed",
+        }));
       }
     }
   }, []);
@@ -268,12 +304,23 @@ function App() {
         isPollingRef.current = true;
 
         try {
-          const checks = [
-            pollMissionStatus({ timeoutMs: POLL_TIMEOUT_MS }),
-            pollTelemetry({ timeoutMs: POLL_TIMEOUT_MS }),
-          ];
+          const now = Date.now();
+          const shouldPollMissionStatus =
+            activeActionIdRef.current ||
+            missionActiveRef.current ||
+            now - lastMissionStatusPollRef.current >= MISSION_STATUS_INTERVAL_MS;
+          const shouldPollBackendHealth =
+            connectionStateRef.current !== "live" ||
+            now - lastBackendHealthPollRef.current >= BACKEND_HEALTH_INTERVAL_MS;
+          const checks = [pollTelemetry({ timeoutMs: POLL_TIMEOUT_MS })];
 
-          if (connectionStateRef.current !== "live") {
+          if (shouldPollMissionStatus) {
+            lastMissionStatusPollRef.current = now;
+            checks.push(pollMissionStatus({ timeoutMs: POLL_TIMEOUT_MS }));
+          }
+
+          if (shouldPollBackendHealth) {
+            lastBackendHealthPollRef.current = now;
             checks.push(pollBackendHealth());
           }
 
@@ -316,6 +363,7 @@ function App() {
           actions={ACTIONS}
           activeActionId={activeActionId}
           connectionState={connectionState}
+          backendHealth={backendHealth}
           isLoading={isActionRunning}
           actionError={actionError}
           missionActive={missionActive}
