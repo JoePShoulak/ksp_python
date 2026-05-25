@@ -9,6 +9,11 @@ export default defineConfig({
         target: "http://127.0.0.1:5000",
         changeOrigin: true,
       },
+      "/jrti": {
+        target: "http://192.168.20.104:8080",
+        changeOrigin: true,
+        rewrite: path => path.replace(/^\/jrti/, ""),
+      },
     },
   },
 });

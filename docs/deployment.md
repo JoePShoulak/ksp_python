@@ -70,6 +70,7 @@ Expected JRTI values if the stream is hosted on the KSP machine:
 ```bash
 KSP_CAMERA_STREAM_URL=http://192.168.20.104:8080/
 KSP_CAMERA_STREAM_KIND=iframe
+KSP_CAMERA_PUBLIC_PATH_PREFIX=/jrti
 ```
 
 ## SSH Deploy User

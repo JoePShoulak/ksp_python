@@ -1,7 +1,7 @@
 function CameraStream({ cameras }) {
   const selectedCamera = cameras?.selected;
   const streamUrl = getReachableStreamUrl(selectedCamera?.stream_url);
-  const streamKind = selectedCamera?.stream_kind ?? "image";
+  const streamKind = getStreamKind(selectedCamera?.stream_kind, streamUrl);
 
   return (
     <div className="camera-stream">
@@ -26,6 +26,33 @@ function CameraStream({ cameras }) {
       </div>
     </div>
   );
+}
+
+function getStreamKind(streamKind, streamUrl) {
+  if (streamKind === "iframe") {
+    return "iframe";
+  }
+
+  if (!streamUrl) {
+    return streamKind ?? "image";
+  }
+
+  try {
+    const url = new URL(streamUrl, window.location.href);
+    const path = url.pathname.toLowerCase();
+
+    if (
+      path.endsWith(".html") ||
+      path === "/" ||
+      url.port === "8080"
+    ) {
+      return "iframe";
+    }
+  } catch {
+    return streamKind ?? "image";
+  }
+
+  return streamKind ?? "image";
 }
 
 function getReachableStreamUrl(streamUrl) {

@@ -1,4 +1,7 @@
 import os
+import json
+from urllib.parse import urljoin
+from urllib.request import urlopen
 
 from config import load_env_file
 
@@ -14,6 +17,8 @@ CAMERA_MODULE_PATTERNS = (
 DEFAULT_CAMERA_STREAM_URL = f"http://{os.environ.get('KRPC_ADDRESS', '192.168.20.104')}:8080/"
 CAMERA_STREAM_URL = os.environ.get("KSP_CAMERA_STREAM_URL") or DEFAULT_CAMERA_STREAM_URL
 CAMERA_STREAM_KIND = os.environ.get("KSP_CAMERA_STREAM_KIND", "image")
+CAMERA_DISCOVERY_TIMEOUT = float(os.environ.get("KSP_CAMERA_DISCOVERY_TIMEOUT", "0.35"))
+CAMERA_PUBLIC_PATH_PREFIX = os.environ.get("KSP_CAMERA_PUBLIC_PATH_PREFIX", "/jrti")
 
 
 def safe_value(getter, fallback=None):
@@ -82,6 +87,105 @@ def get_camera_stream_url(camera):
   return normalize_stream_url(stream_url)
 
 
+def get_jrti_base_url():
+  return normalize_stream_url(CAMERA_STREAM_URL)
+
+
+def get_jrti_camera_url(path):
+  base_url = get_jrti_base_url()
+
+  if not base_url:
+    return None
+
+  return urljoin(base_url, path)
+
+
+def get_public_jrti_url(path):
+  if not path:
+    return None
+
+  if path.startswith(("http://", "https://")):
+    return path
+
+  prefix = CAMERA_PUBLIC_PATH_PREFIX.rstrip("/")
+
+  if not prefix:
+    return path
+
+  return f"{prefix}/{path.lstrip('/')}"
+
+
+def read_jrti_cameras():
+  cameras_url = get_jrti_camera_url("/cameras")
+
+  if not cameras_url:
+    return []
+
+  try:
+    with urlopen(cameras_url, timeout=CAMERA_DISCOVERY_TIMEOUT) as response:
+      data = json.loads(response.read().decode("utf-8"))
+  except Exception:
+    return []
+
+  if isinstance(data, dict):
+    cameras = data.get("value", [])
+  else:
+    cameras = data
+
+  if not isinstance(cameras, list):
+    return []
+
+  return [
+    camera
+    for camera in cameras
+    if isinstance(camera, dict)
+  ]
+
+
+def normalize_jrti_camera(camera, index):
+  stream_path = camera.get("streamUrl") or f"/viewer.html?id={camera.get('id')}"
+  snapshot_path = camera.get("snapshotUrl")
+
+  return {
+    "id": str(camera.get("id", f"jrti-{index}")),
+    "index": index,
+    "part_name": str(camera.get("id", f"jrti-{index}")),
+    "label": camera.get("name") or f"JRTI Camera {index + 1}",
+    "modules": [],
+    "source": "jrti",
+    "streaming": bool(camera.get("streaming")),
+    "viewer_count": camera.get("viewerCount"),
+    "snapshot_url": get_public_jrti_url(snapshot_path) if snapshot_path else None,
+    "stream_url": get_public_jrti_url(stream_path),
+    "stream_kind": "iframe",
+  }
+
+
+def get_jrti_camera_snapshot():
+  jrti_cameras = [
+    normalize_jrti_camera(camera, index)
+    for index, camera in enumerate(read_jrti_cameras())
+  ]
+
+  if not jrti_cameras:
+    return None
+
+  selected_camera = next(
+    (camera for camera in jrti_cameras if camera["streaming"]),
+    jrti_cameras[0],
+  )
+
+  return {
+    "available": True,
+    "count": len(jrti_cameras),
+    "selected_index": selected_camera["index"],
+    "selected": selected_camera,
+    "stream_configured": bool(CAMERA_STREAM_URL),
+    "source": "jrti",
+    "cameras": jrti_cameras,
+  }
+
+
 def get_configured_stream_camera():
   if not CAMERA_STREAM_URL:
     return None
@@ -103,6 +207,11 @@ def get_configured_stream_camera():
 
 
 def get_camera_snapshot(vessel):
+  jrti_snapshot = get_jrti_camera_snapshot()
+
+  if jrti_snapshot:
+    return jrti_snapshot
+
   cameras = []
 
   for index, part in enumerate(safe_value(lambda: list(vessel.parts.all), [])):
