@@ -580,6 +580,7 @@ class Telemetry:
     self._slow_checked_at = 0
     self._timing = {}
     self._updated_at = 0
+    self._active_vessel_miss_count = 0
     self._initialized = False
 
   def begin(self, conn, vessel):
@@ -677,6 +678,7 @@ class Telemetry:
       self._slow_checked_at = 0
       self._timing = {}
       self._updated_at = 0
+      self._active_vessel_miss_count = 0
       self._initialized = False
 
     close_connection(conn, stop_warp_first=False)
@@ -784,7 +786,11 @@ class Telemetry:
     active_vessel = self.get_active_vessel()
 
     if not active_vessel:
-      self.reset()
+      self._active_vessel_miss_count += 1
+
+      if self._active_vessel_miss_count >= 12:
+        self.reset()
+
       return False
 
     active_name = safe_value(lambda: active_vessel.name)
@@ -804,6 +810,7 @@ class Telemetry:
       self.reset()
       return False
 
+    self._active_vessel_miss_count = 0
     return True
 
   def sync_active_vessel(self):
@@ -813,12 +820,17 @@ class Telemetry:
     active_vessel = self.get_active_vessel()
 
     if not active_vessel:
-      self.reset()
+      self._active_vessel_miss_count += 1
+
+      if self._active_vessel_miss_count >= 12:
+        self.reset()
+
       return False
 
     active_name = safe_value(lambda: active_vessel.name)
 
     if active_name != self._vessel_name:
+      self._active_vessel_miss_count = 0
       return self.begin(self._conn, active_vessel)
 
     current_met = safe_value(lambda: active_vessel.met)
@@ -832,6 +844,7 @@ class Telemetry:
       self.reset()
       return False
 
+    self._active_vessel_miss_count = 0
     return True
 
   def capture(self, conn, vessel, status="nominal"):

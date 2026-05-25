@@ -5,11 +5,12 @@ function ActionButton({
   activeActionId,
   missionLocked,
   pendingActionId,
+  vesselLinked,
   onRunAction,
 }) {
   const isActive = action.id === activeActionId;
   const isPending = action.id === pendingActionId;
-  const isDisabled = Boolean(pendingActionId) || missionLocked;
+  const isDisabled = !vesselLinked || Boolean(pendingActionId) || missionLocked;
 
   return (
     <button
@@ -128,6 +129,8 @@ function ActionsPanel({
   const missionSteps = actions.filter(action => action.section !== "sequence");
   const sequences = actions.filter(action => action.section === "sequence");
   const missionLocked = missionActive || Boolean(activeActionId);
+  const vesselLinked = connectionState === "live";
+  const canAbortMission = missionLocked || Boolean(pendingActionId);
   const showBackendDebug = false;
 
   return (
@@ -142,6 +145,7 @@ function ActionsPanel({
                 activeActionId={activeActionId}
                 missionLocked={missionLocked}
                 pendingActionId={pendingActionId}
+                vesselLinked={vesselLinked}
                 onRunAction={onRunAction}
               />
             ))}
@@ -156,6 +160,7 @@ function ActionsPanel({
                   activeActionId={activeActionId}
                   missionLocked={missionLocked}
                   pendingActionId={pendingActionId}
+                  vesselLinked={vesselLinked}
                   onRunAction={onRunAction}
                 />
               ))}
@@ -181,7 +186,8 @@ function ActionsPanel({
         <button
           className="abort-button"
           type="button"
-          onClick={onAbortAction}>
+          onClick={onAbortAction}
+          disabled={!canAbortMission}>
           Abort Mission
         </button>
       </Panel>

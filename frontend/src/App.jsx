@@ -194,6 +194,7 @@ function App() {
         setActiveActionId(null);
         setMissionActive(false);
         setPendingActionId(null);
+        setActionError(null);
       }
     } catch (error) {
       if (error.name === "AbortError") {
@@ -316,7 +317,12 @@ function App() {
   async function handleRunAction(actionId) {
     const previousActionId = activeActionIdRef.current;
 
-    if (pendingActionId || activeActionIdRef.current || missionActiveRef.current) {
+    if (
+      !hasVesselRef.current ||
+      pendingActionId ||
+      activeActionIdRef.current ||
+      missionActiveRef.current
+    ) {
       return;
     }
 
