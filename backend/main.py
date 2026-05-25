@@ -156,6 +156,14 @@ def status():
   })
 
 
+@app.route("/api/health", methods=["GET"])
+def health():
+  return jsonify({
+    "ok": True,
+    "message": "KSP Interface API is running",
+  })
+
+
 @app.route("/api/mission", methods=["GET"])
 def mission_status():
   mission = get_active_mission_status()

@@ -9,14 +9,17 @@ import {
   abortKspAction,
   getMissionStatus,
   getTelemetry,
+  getBackendHealth,
   reportViewport,
   runKspAction,
 } from "./api/kspApi";
 
 import ActionsPanel from "./components/ActionsPanel";
+import FullscreenButton from "./components/FullscreenButton";
 import MissionTelemetryPanel from "./components/MissionTelemetryPanel";
 
-const TELEMETRY_OFFLINE_FAILURE_LIMIT = 10;
+const TELEMETRY_OFFLINE_FAILURE_LIMIT = 3;
+const POLL_TIMEOUT_MS = 1500;
 
 function App() {
   const [telemetry, setTelemetry] = useState(null);
@@ -31,7 +34,7 @@ function App() {
   const activeActionStartedAtRef = useRef(0);
   const visualResetSequenceRef = useRef(null);
   const isPollingRef = useRef(false);
-  const telemetryFailureCountRef = useRef(0);
+  const apiFailureCountRef = useRef(0);
 
   const isActionRunning = activeActionId !== null || missionActive;
 
@@ -117,7 +120,7 @@ function App() {
       const data = await getTelemetry(options);
       const hasActiveVessel = Boolean(data.has_vessel);
 
-      telemetryFailureCountRef.current = 0;
+      apiFailureCountRef.current = 0;
       setTelemetry(hasActiveVessel ? (data.telemetry ?? null) : null);
       setHasVessel(hasActiveVessel);
       setConnectionState(hasActiveVessel ? "live" : "idle");
@@ -131,9 +134,9 @@ function App() {
         return;
       }
 
-      telemetryFailureCountRef.current += 1;
+      apiFailureCountRef.current += 1;
 
-      if (telemetryFailureCountRef.current >= TELEMETRY_OFFLINE_FAILURE_LIMIT) {
+      if (apiFailureCountRef.current >= TELEMETRY_OFFLINE_FAILURE_LIMIT) {
         setTelemetry(null);
         setHasVessel(false);
         setConnectionState("offline");
@@ -141,9 +144,28 @@ function App() {
     }
   }, []);
 
-  const pollMissionStatus = useCallback(async () => {
+  const pollBackendHealth = useCallback(async () => {
     try {
-      const data = await getMissionStatus();
+      await getBackendHealth({ timeoutMs: POLL_TIMEOUT_MS });
+      apiFailureCountRef.current = 0;
+
+      if (connectionState === "connecting") {
+        setConnectionState("idle");
+      }
+    } catch {
+      apiFailureCountRef.current += 1;
+
+      if (apiFailureCountRef.current >= TELEMETRY_OFFLINE_FAILURE_LIMIT) {
+        setTelemetry(null);
+        setHasVessel(false);
+        setConnectionState("offline");
+      }
+    }
+  }, [connectionState]);
+
+  const pollMissionStatus = useCallback(async (options = {}) => {
+    try {
+      const data = await getMissionStatus(options);
       const actionHasSettled = Date.now() - activeActionStartedAtRef.current > 750;
       const resetSequence = data.mission?.visual_reset_sequence;
       const isMissionActive = Boolean(data.mission?.active);
@@ -225,8 +247,11 @@ function App() {
         isPollingRef.current = true;
 
         try {
-          await pollMissionStatus();
-          await pollTelemetry();
+          await Promise.allSettled([
+            pollMissionStatus({ timeoutMs: POLL_TIMEOUT_MS }),
+            pollTelemetry({ timeoutMs: POLL_TIMEOUT_MS }),
+            pollBackendHealth(),
+          ]);
         } finally {
           isPollingRef.current = false;
         }
@@ -245,7 +270,7 @@ function App() {
         clearTimeout(timeoutId);
       }
     };
-  }, [pollMissionStatus, pollTelemetry]);
+  }, [pollBackendHealth, pollMissionStatus, pollTelemetry]);
 
   return (
     <main className="app">
@@ -255,6 +280,7 @@ function App() {
           <h1>Mission Dashboard</h1>
         </div>
 
+        <FullscreenButton />
       </header>
 
       <section className="dashboard-grid">

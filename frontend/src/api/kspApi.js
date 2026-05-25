@@ -72,7 +72,7 @@ async function fetchJson(url, options = {}) {
 export async function runKspAction(actionId) {
   return fetchJson(`/api/actions/${actionId}`, {
     method: "POST",
-    timeoutMs: 8000,
+    timeoutMs: 30000,
   });
 }
 
@@ -88,6 +88,10 @@ export async function getTelemetry(options = {}) {
 
 export async function getMissionStatus(options = {}) {
   return fetchJson("/api/mission", options);
+}
+
+export async function getBackendHealth(options = {}) {
+  return fetchJson("/api/health", options);
 }
 
 export async function reportViewport(viewport) {
