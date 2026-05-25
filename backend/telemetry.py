@@ -16,6 +16,18 @@ from krpc_utils import (
 G0 = 9.80665
 SLOW_TELEMETRY_INTERVAL = 10
 SLOW_TELEMETRY_LOG_THRESHOLD = 0.75
+MISSION_FAST_STATUSES = {
+  "Pre-flight check",
+  "Launching in 3...",
+  "Launching in 2...",
+  "Launching in 1...",
+  "Vertical Ascent",
+  "Pitch over",
+  "Staging to space",
+  "Aiming prograde",
+  "Waiting to Circularize",
+  "Circularizing",
+}
 KERBIN_SEA_LEVEL_PRESSURE_PA = 101325
 VACUUM_PRESSURE_ATM = 0
 SEA_LEVEL_PRESSURE_ATM = 1
@@ -593,8 +605,8 @@ class Telemetry:
     liquid_fuel = conn.add_stream(vessel.resources.amount, "LiquidFuel")
     longitude = conn.add_stream(getattr, flight, "longitude")
 
-    delta_v_profiles = safe_value(lambda: calc_delta_v_profiles(vessel), {})
-    total_dv = safe_value(lambda: delta_v_profiles["practical"]["total"], 0)
+    delta_v_profiles = self._delta_v_profiles or {}
+    total_dv = self._delta_v
     self._delta_v = total_dv
     self._delta_v_profiles = delta_v_profiles
     self._delta_v_checked_at = time.monotonic()
@@ -642,7 +654,7 @@ class Telemetry:
       close_connection(prior_conn, stop_warp_first=False)
 
     mark_connection_streams(conn, len(self._getters))
-    self.update("Telemetry initialized", include_slow=True)
+    self.update("Telemetry initialized", include_slow=False)
     return True
 
   def reset(self):
@@ -872,7 +884,10 @@ class Telemetry:
     streams_done_at = time.monotonic()
 
     if include_slow is None:
-      include_slow = time.monotonic() - self._slow_checked_at >= SLOW_TELEMETRY_INTERVAL
+      include_slow = (
+        status not in MISSION_FAST_STATUSES
+        and time.monotonic() - self._slow_checked_at >= SLOW_TELEMETRY_INTERVAL
+      )
 
     slow_started_at = time.monotonic()
     if include_slow:

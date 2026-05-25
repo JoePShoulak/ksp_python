@@ -83,6 +83,35 @@ print(f"Uptime:         {uptime}s")
 PY
 }
 
+show_mission() {
+  python3 - "$PROD_URL/api/mission" <<'PY'
+import json
+import sys
+import time
+import urllib.request
+
+url = sys.argv[1]
+with urllib.request.urlopen(url, timeout=5) as response:
+    payload = json.load(response)
+
+mission = payload.get("mission") or {}
+events = mission.get("events") or []
+
+print(f"Active:   {mission.get('active')}")
+print(f"Phase:    {mission.get('phase') or 'none'}")
+print(f"Action:   {mission.get('action') or 'none'}")
+print(f"Error:    {mission.get('last_error') or 'none'}")
+print("Events:")
+
+for event in events[-20:]:
+    timestamp = event.get("time")
+    clock = time.strftime("%H:%M:%S", time.localtime(timestamp)) if timestamp else "--:--:--"
+    details = event.get("details") or {}
+    detail_text = f" {details}" if details else ""
+    print(f"  {clock} {event.get('phase') or '-'} {event.get('event')}{detail_text}")
+PY
+}
+
 case "$COMMAND" in
   status)
     echo "Production health"
@@ -93,6 +122,9 @@ case "$COMMAND" in
     ;;
   health)
     show_health
+    ;;
+  mission)
+    show_mission
     ;;
   up)
     run_remote "sudo /usr/bin/systemctl restart ksp-backend && sudo /usr/sbin/nginx -t && sudo /usr/bin/systemctl reload nginx"
@@ -129,7 +161,7 @@ case "$COMMAND" in
     ssh "$HOST_NAME"
     ;;
   *)
-    echo "Usage: scripts/prod [status|health|up|down|restart|reload|logs|repair-sudo|redeploy|deploy|update|ssh]"
+    echo "Usage: scripts/prod [status|health|mission|up|down|restart|reload|logs|repair-sudo|redeploy|deploy|update|ssh]"
     exit 2
     ;;
 esac
