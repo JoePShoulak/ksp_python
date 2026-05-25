@@ -3,7 +3,7 @@ import react from "@vitejs/plugin-react";
 
 const JRTI_TARGET = "http://192.168.20.104:8080";
 const JRTI_SNAPSHOT_REFRESH_MS = 500;
-const API_TARGET = globalThis.process?.env?.KSP_API_TARGET || "http://127.0.0.1:5002";
+const API_TARGET = globalThis.process?.env?.KSP_API_TARGET || "http://127.0.0.1:5000";
 
 export default defineConfig({
   plugins: [react(), jrtiProxyOverride()],

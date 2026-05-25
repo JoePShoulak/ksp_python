@@ -95,6 +95,30 @@ def timed_debug_step(label, callback):
   }
 
 
+def connect_telemetry_presence_stream():
+  try:
+    conn = krpc.connect(name="Telemetry Presence", **get_krpc_connection_config())
+    remember_connection(conn, "Telemetry Presence")
+    return conn
+  except Exception:
+    return None
+
+
+def read_active_vessel_from_connection(conn):
+  if conn is None:
+    return None, False
+
+  try:
+    vessel = conn.space_center.active_vessel
+  except Exception:
+    return None, True
+
+  if vessel and vessel_is_readable(vessel):
+    return vessel, True
+
+  return None, True
+
+
 def action_is_starting_or_running():
   with ACTION_LOCK:
     return bool(ACTIVE_ACTION)
@@ -104,11 +128,16 @@ def telemetry_stream_loop():
   global LAST_TELEMETRY_ERROR
 
   last_slow_update = 0
+  presence_conn = None
 
   while True:
     mission = get_registered_mission()
 
     if mission or action_is_starting_or_running():
+      if presence_conn is not None:
+        close_connection(presence_conn, stop_warp_first=False)
+        presence_conn = None
+
       time.sleep(TELEMETRY_STREAM_INTERVAL)
       continue
 
@@ -133,14 +162,30 @@ def telemetry_stream_loop():
         else:
           LAST_TELEMETRY_ERROR = "No active vessel"
       else:
-        conn, vessel = safe_connect("Telemetry Stream")
+        if presence_conn is None:
+          presence_conn = connect_telemetry_presence_stream()
 
-        if conn and vessel:
-          TLM.begin(conn, vessel)
+        try:
+          vessel, presence_alive = read_active_vessel_from_connection(presence_conn)
+        except Exception:
+          vessel = None
+          presence_alive = presence_conn is not None
+
+        if presence_conn is not None and not presence_alive:
+          close_connection(presence_conn, stop_warp_first=False)
+          presence_conn = None
+
+        if presence_conn is not None and vessel:
+          TLM.begin(presence_conn, vessel)
+          presence_conn = None
           LAST_TELEMETRY_ERROR = None
         else:
           LAST_TELEMETRY_ERROR = "No active vessel"
     except Exception as error:
+      if presence_conn is not None:
+        close_connection(presence_conn, stop_warp_first=False)
+        presence_conn = None
+
       LAST_TELEMETRY_ERROR = str(error)
     finally:
       KRPC_QUERY_LOCK.release()
