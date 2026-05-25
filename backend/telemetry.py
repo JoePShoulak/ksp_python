@@ -654,7 +654,7 @@ class Telemetry:
       close_connection(prior_conn, stop_warp_first=False)
 
     mark_connection_streams(conn, len(self._getters))
-    self.update("Telemetry initialized", include_slow=False)
+    self.update("Telemetry initialized", include_slow=True)
     return True
 
   def reset(self):
@@ -892,6 +892,8 @@ class Telemetry:
     slow_started_at = time.monotonic()
     if include_slow:
       values.update(self.update_slow_data())
+    else:
+      values.update(self._slow_data)
     slow_done_at = time.monotonic()
 
     with self._lock:
