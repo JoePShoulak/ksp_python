@@ -44,7 +44,7 @@ server {
     add_header Cache-Control "no-store";
     sub_filter "<title>Just Read The Instructions</title>" "<title>Camera Feeds</title>";
     sub_filter "<h1>Just Read The Instructions</h1>" "<h1 hidden></h1>";
-    sub_filter "</head>" "<style>header{border-bottom:0!important;margin-bottom:.75rem!important;padding-bottom:0!important;justify-content:center!important}header h1,.global-actions,#groups-bar:empty{display:none!important}header:has(#groups-bar:empty){display:none!important}</style></head>";
+    sub_filter "</head>" "<style>body{padding:0!important}header{display:none!important}#cameras-live,#cameras-offline{gap:1rem!important}#error:empty,#empty:empty{display:none!important}</style></head>";
   }
 
   location = /cameras {

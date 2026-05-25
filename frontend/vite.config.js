@@ -66,20 +66,21 @@ function patchJrtiDashboard(source) {
     .replace(
       "</head>",
       `  <style>
-    header {
-      border-bottom: 0 !important;
-      margin-bottom: 0.75rem !important;
-      padding-bottom: 0 !important;
-      justify-content: center !important;
+    body {
+      padding: 0 !important;
     }
 
-    header h1,
-    .global-actions,
-    #groups-bar:empty {
+    header {
       display: none !important;
     }
 
-    header:has(#groups-bar:empty) {
+    #cameras-live,
+    #cameras-offline {
+      gap: 1rem !important;
+    }
+
+    #error:empty,
+    #empty:empty {
       display: none !important;
     }
   </style>
@@ -127,7 +128,12 @@ function jrtiProxyOverride() {
   return {
     name: "jrti-proxy-override",
     configureServer(server) {
-      server.middlewares.use("/jrti/", async (_request, response, next) => {
+      server.middlewares.use("/jrti/", async (request, response, next) => {
+        if (request.url && !["/", ""].includes(request.url.split("?")[0])) {
+          next();
+          return;
+        }
+
         try {
           const jrtiResponse = await fetch(`${JRTI_TARGET}/`);
 

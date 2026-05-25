@@ -63,6 +63,10 @@ function getReachableStreamUrl(streamUrl) {
   try {
     const url = new URL(streamUrl, window.location.href);
 
+    if (url.port === "8080") {
+      return `/jrti${url.pathname}${url.search}${url.hash}`;
+    }
+
     if (["localhost", "127.0.0.1", "0.0.0.0"].includes(url.hostname)) {
       url.hostname = window.location.hostname;
     }
