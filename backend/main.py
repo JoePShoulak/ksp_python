@@ -339,6 +339,7 @@ def health():
     "last_error": last_error,
     "krpc_query_busy": KRPC_QUERY_LOCK.locked(),
     "krpc_connections": get_connection_ledger(),
+    "telemetry_timing": TLM.get_timing(),
     "telemetry_stream_running": TELEMETRY_STREAM_STARTED,
     **get_cached_vessel_state(),
   })

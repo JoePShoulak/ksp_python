@@ -63,6 +63,7 @@ vessel = health.get("cached_vessel_name") or "none"
 telemetry_age = health.get("telemetry_cache_age")
 telemetry_label = f"{telemetry_age:.1f}s" if isinstance(telemetry_age, (int, float)) else "unknown"
 krpc = health.get("krpc_connections") or {}
+timing = health.get("telemetry_timing") or {}
 uptime = int(health.get("uptime_seconds") or 0)
 
 print(f"Backend:        {backend}")
@@ -70,6 +71,13 @@ print(f"Mission:        {mission}")
 print(f"Action:         {action}")
 print(f"Vessel:         {vessel}")
 print(f"Telemetry age:  {telemetry_label}")
+if timing:
+    print(
+        "TLM update:     "
+        f"{timing.get('total_seconds', 0):.3f}s total, "
+        f"{timing.get('slow_seconds', 0):.3f}s slow, "
+        f"slow={timing.get('include_slow')}"
+    )
 print(f"kRPC streams:   {krpc.get('open_count', 'unknown')} open")
 print(f"Uptime:         {uptime}s")
 PY

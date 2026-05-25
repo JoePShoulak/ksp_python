@@ -14,6 +14,8 @@ from krpc_utils import (
 )
 
 G0 = 9.80665
+SLOW_TELEMETRY_INTERVAL = 10
+SLOW_TELEMETRY_LOG_THRESHOLD = 0.75
 KERBIN_SEA_LEVEL_PRESSURE_PA = 101325
 VACUUM_PRESSURE_ATM = 0
 SEA_LEVEL_PRESSURE_ATM = 1
@@ -564,6 +566,7 @@ class Telemetry:
     self._snapshot_vessel_id = None
     self._slow_data = {}
     self._slow_checked_at = 0
+    self._timing = {}
     self._updated_at = 0
     self._initialized = False
 
@@ -660,6 +663,7 @@ class Telemetry:
       self._snapshot_vessel_id = None
       self._slow_data = {}
       self._slow_checked_at = 0
+      self._timing = {}
       self._updated_at = 0
       self._initialized = False
 
@@ -863,17 +867,40 @@ class Telemetry:
     return values
 
   def update(self, status="nominal", include_slow=None):
+    started_at = time.monotonic()
     values = self.streams(status)
+    streams_done_at = time.monotonic()
 
     if include_slow is None:
-      include_slow = time.monotonic() - self._slow_checked_at >= 1
+      include_slow = time.monotonic() - self._slow_checked_at >= SLOW_TELEMETRY_INTERVAL
 
+    slow_started_at = time.monotonic()
     if include_slow:
       values.update(self.update_slow_data())
+    slow_done_at = time.monotonic()
 
     with self._lock:
       self._data.update(values)
       self._updated_at = time.time()
+      self._timing = {
+        "status": status,
+        "include_slow": bool(include_slow),
+        "streams_seconds": streams_done_at - started_at,
+        "slow_seconds": slow_done_at - slow_started_at if include_slow else 0,
+        "total_seconds": slow_done_at - started_at,
+        "updated_at": self._updated_at,
+      }
+
+    if self._timing["total_seconds"] >= SLOW_TELEMETRY_LOG_THRESHOLD:
+      print(
+        "[telemetry] slow update "
+        f"status={status!r} "
+        f"include_slow={include_slow} "
+        f"streams={self._timing['streams_seconds']:.3f}s "
+        f"slow={self._timing['slow_seconds']:.3f}s "
+        f"total={self._timing['total_seconds']:.3f}s",
+        flush=True,
+      )
       
   def is_initialized(self):
     return self._initialized
@@ -885,6 +912,10 @@ class Telemetry:
   def get_updated_at(self):
     with self._lock:
       return self._updated_at
+
+  def get_timing(self):
+    with self._lock:
+      return dict(self._timing)
 
 
 TLM = Telemetry()
