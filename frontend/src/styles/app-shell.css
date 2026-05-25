@@ -26,6 +26,7 @@
   display: inline-flex;
   align-items: center;
   gap: 0.45rem;
+  min-width: 0;
   max-width: 100%;
   border: 1px solid var(--border-strong);
   border-radius: 999px;
@@ -35,6 +36,8 @@
   font-size: 0.85rem;
   font-weight: 800;
   line-height: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 

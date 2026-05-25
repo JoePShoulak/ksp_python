@@ -260,8 +260,17 @@
     gap: 0.55rem;
   }
 
+  .panel-title-row {
+    gap: 0.45rem;
+  }
+
+  .connection-pill {
+    padding: 0.36rem 0.5rem;
+    font-size: 0.72rem;
+  }
+
   .action-group {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: minmax(0, 1fr);
     gap: 0.5rem;
   }
 
