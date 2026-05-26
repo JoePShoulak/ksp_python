@@ -641,33 +641,32 @@ def lko_tourism_route():
   )
 
 
-@app.route("/api/abort", methods=["POST"])
-def abort_route():
-  cancel_active_action("Abort requested")
-  abort_active_mission("Abort requested")
+@app.route("/api/release", methods=["POST"])
+def release_route():
+  cancel_active_action("Release requested")
+  abort_active_mission("Release requested")
 
   thread = threading.Thread(
-    target=abort_active_vessel_controls,
+    target=release_active_vessel_controls,
     daemon=True,
-    name="ksp-abort-controls",
+    name="ksp-release-controls",
   )
   thread.start()
 
   return jsonify({
     "ok": True,
-    "aborted": True,
+    "released": True,
   }), 202
 
 
-def abort_active_vessel_controls():
-  conn, vessel = safe_connect("Abort")
+def release_active_vessel_controls():
+  conn, vessel = safe_connect("Release")
 
   if conn and vessel:
     try:
       stop_warp(conn)
       safe_value(lambda: vessel.auto_pilot.disengage())
       safe_value(lambda: setattr(vessel.control, "throttle", 0))
-      safe_value(lambda: setattr(vessel.control, "abort", True))
       safe_value(lambda: setattr(vessel.control, "sas", True))
       safe_value(lambda: setattr(vessel.control, "rcs", False))
     finally:

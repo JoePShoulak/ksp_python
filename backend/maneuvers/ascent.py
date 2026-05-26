@@ -19,6 +19,7 @@ from .constants import (
   LAUNCH_ASCENT_FAILURE_VERTICAL_SPEED,
   LAUNCH_GUIDANCE_READY_MAX_ERROR,
   LAUNCH_MIN_CLIMB_ALTITUDE,
+  LAUNCH_PITCH_OVER_ANGLE,
   LAUNCH_TARGET_APOAPSIS,
   LAUNCH_VERTICAL_ASCENT_ALTITUDE,
   LAUNCH_VERTICAL_ASCENT_TIMEOUT,
@@ -175,7 +176,7 @@ def launch(conn, vessel, guard):
 def gravity_turn_to_orbit(conn, vessel, guard):
   guard.check(force=True)
   TLM.update("Pitch over")
-  vessel.auto_pilot.target_pitch_and_heading(75, 90)
+  vessel.auto_pilot.target_pitch_and_heading(LAUNCH_PITCH_OVER_ANGLE, 90)
 
   for _ in range(70):
     time.sleep(0.1)

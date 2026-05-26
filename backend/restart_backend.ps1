@@ -4,7 +4,9 @@ $repo = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 $python = "C:\Users\joeps\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe"
 $port = 5000
 $runtimeDir = Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) ".runtime"
-$pythonDeps = Join-Path $repo ".python-deps"
+$runtimePythonDeps = Join-Path $runtimeDir "python-deps"
+$repoPythonDeps = Join-Path $repo ".python-deps"
+$pythonDeps = if (Test-Path $runtimePythonDeps) { $runtimePythonDeps } else { $repoPythonDeps }
 
 New-Item -ItemType Directory -Force -Path $runtimeDir | Out-Null
 
@@ -21,13 +23,10 @@ foreach ($processId in $listeners) {
 
 Start-Sleep -Milliseconds 500
 
-$stdoutLog = Join-Path $runtimeDir "backend.stdout.log"
-$stderrLog = Join-Path $runtimeDir "backend.stderr.log"
-$command = "set PYTHONPATH=$pythonDeps&& `"$python`" backend\main.py > `"$stdoutLog`" 2> `"$stderrLog`""
-
+$env:PYTHONPATH = $pythonDeps
 $backendProcess = Start-Process `
-  -FilePath "cmd.exe" `
-  -ArgumentList @("/d", "/s", "/c", $command) `
+  -FilePath $python `
+  -ArgumentList @("backend\main.py") `
   -WorkingDirectory $repo `
   -WindowStyle Hidden `
   -PassThru
