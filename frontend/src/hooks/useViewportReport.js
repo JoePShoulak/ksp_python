@@ -1,8 +1,10 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 
 import { reportViewport } from "../api/kspApi";
 
-const VIEWPORT_REPORT_DELAY_MS = 150;
+const VIEWPORT_REPORT_DELAY_MS = 250;
+const VIEWPORT_REPORT_MIN_INTERVAL_MS = 2000;
+const VIEWPORT_JITTER_PX = 20;
 const VIEWPORT_CLIENT_ID_KEY = "kspViewportClientId";
 
 function readViewport() {
@@ -47,13 +49,58 @@ function logViewport(report) {
 }
 
 export function useViewportReport() {
+  const lastReportRef = useRef(null);
+
   useEffect(() => {
     let timeoutId = null;
 
-    function sendViewport() {
+    function reportsAreEffectivelyEqual(currentReport, previousReport) {
+      if (!previousReport) {
+        return false;
+      }
+
+      return (
+        Math.abs(
+          currentReport.viewport_width - previousReport.viewport_width,
+        ) <= VIEWPORT_JITTER_PX &&
+        Math.abs(
+          currentReport.viewport_height - previousReport.viewport_height,
+        ) <= VIEWPORT_JITTER_PX &&
+        Math.abs(currentReport.layout_width - previousReport.layout_width) <=
+          VIEWPORT_JITTER_PX &&
+        Math.abs(currentReport.layout_height - previousReport.layout_height) <=
+          VIEWPORT_JITTER_PX &&
+        currentReport.device_pixel_ratio === previousReport.device_pixel_ratio &&
+        currentReport.orientation === previousReport.orientation
+      );
+    }
+
+    function sendViewport(force = false) {
       const report = readViewport();
+      const now = Date.now();
+      const lastReport = lastReportRef.current;
+
+      if (
+        !force &&
+        lastReport &&
+        now - lastReport.reportedAt < VIEWPORT_REPORT_MIN_INTERVAL_MS
+      ) {
+        return;
+      }
+
+      if (
+        !force &&
+        lastReport &&
+        reportsAreEffectivelyEqual(report, lastReport.report)
+      ) {
+        return;
+      }
 
       logViewport(report);
+      lastReportRef.current = {
+        report,
+        reportedAt: now,
+      };
       reportViewport(report).catch(() => {});
     }
 
@@ -62,7 +109,7 @@ export function useViewportReport() {
       timeoutId = window.setTimeout(sendViewport, VIEWPORT_REPORT_DELAY_MS);
     }
 
-    sendViewport();
+    sendViewport(true);
     window.addEventListener("resize", scheduleViewportReport);
     window.visualViewport?.addEventListener("resize", scheduleViewportReport);
     window.screen?.orientation?.addEventListener?.("change", scheduleViewportReport);

@@ -1,10 +1,22 @@
-function VisualizationSubpanel({ title, variant = "chart", children }) {
-  return (
-    <section className={`visualization-subpanel subpanel-${variant}`}>
-      <h3>{title}</h3>
+import PopoutCard from "../PopoutCard";
 
-      <div className="visualization-subpanel-content">{children}</div>
-    </section>
+function VisualizationSubpanel({
+  title,
+  variant = "chart",
+  popout = true,
+  popoutName,
+  children,
+}) {
+  return (
+    <PopoutCard
+      className={`visualization-subpanel subpanel-${variant}`}
+      contentClassName="visualization-subpanel-content"
+      title={title}
+      titleLevel={3}
+      popout={popout}
+      popoutName={popoutName || title}>
+      {children}
+    </PopoutCard>
   );
 }
 

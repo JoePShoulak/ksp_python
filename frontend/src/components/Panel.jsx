@@ -1,9 +1,15 @@
-function Panel({ title, children }) {
+import PopoutCard from "./PopoutCard";
+
+function Panel({ title, children, popout = true, popoutName }) {
   return (
-    <section className="panel">
-      {title && <h2>{title}</h2>}
+    <PopoutCard
+      className="panel"
+      title={title}
+      titleLevel={2}
+      popout={popout}
+      popoutName={popoutName}>
       {children}
-    </section>
+    </PopoutCard>
   );
 }
 

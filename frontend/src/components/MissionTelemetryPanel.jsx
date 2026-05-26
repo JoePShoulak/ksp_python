@@ -9,7 +9,7 @@ import KerbinSystemMap from "./visualizations/KerbinSystemMap";
 
 function IdleTelemetryPanel() {
   return (
-    <Panel title="Telemetry">
+    <Panel title="Telemetry" popout={false}>
       <div className="idle-panel">
         <div className="idle-orb" />
 
@@ -42,34 +42,43 @@ function MissionTelemetryPanel({
     : "Vessel Status";
 
   return (
-    <Panel title="Telemetry">
+    <Panel title="Telemetry" popout={false}>
       <div className="visualization-grid">
-        <VisualizationSubpanel title={vesselStatusTitle} variant="primary">
+        <VisualizationSubpanel
+          title={vesselStatusTitle}
+          variant="primary"
+          popoutName="Vessel Status">
           <VesselStatus telemetry={telemetry} />
         </VisualizationSubpanel>
 
-        <VisualizationSubpanel title="Numerical Telemetry" variant="secondary">
+        <VisualizationSubpanel
+          title="Numerical Telemetry"
+          variant="secondary"
+          popoutName="Numerical Telemetry">
           <NumericalTelemetry telemetry={telemetry} />
         </VisualizationSubpanel>
 
         {hasCameras && (
-          <VisualizationSubpanel title="Camera Feed" variant="camera">
+          <VisualizationSubpanel
+            title="Camera Feed"
+            variant="camera"
+            popoutName="Camera Feed">
             <CameraStream cameras={telemetry.cameras} />
           </VisualizationSubpanel>
         )}
 
-        <VisualizationSubpanel title="Ascent - Cartesian">
+        <VisualizationSubpanel title="Ascent - Cartesian" popoutName="Ascent Cartesian">
           <AscentCartesian
             key={`cartesian-${visualResetKey}`}
             telemetry={telemetry}
           />
         </VisualizationSubpanel>
 
-        <VisualizationSubpanel title="Ascent - Polar">
+        <VisualizationSubpanel title="Ascent - Polar" popoutName="Ascent Polar">
           <AscentPolar key={`polar-${visualResetKey}`} telemetry={telemetry} />
         </VisualizationSubpanel>
 
-        <VisualizationSubpanel title="Kerbin System">
+        <VisualizationSubpanel title="Kerbin System" popoutName="Kerbin System">
           <KerbinSystemMap
             key={`kerbin-${visualResetKey}`}
             telemetry={telemetry}

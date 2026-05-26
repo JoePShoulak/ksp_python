@@ -9,6 +9,28 @@ def vessel_is_down(vessel):
 def has_usable_thrust(vessel):
   return TLM.read("liquid_fuel") > 0.1 and vessel.available_thrust > 0.1
 
+def parachute_has_left_stowed_state(parachute):
+  try:
+    if parachute.deployed:
+      return True
+  except Exception:
+    pass
+
+  try:
+    state = str(parachute.state).lower()
+  except Exception:
+    return False
+
+  return bool(state and "stowed" not in state)
+
+def parachutes_have_deployed(vessel):
+  try:
+    parachutes = list(vessel.parts.parachutes)
+  except Exception:
+    return False
+
+  return any(parachute_has_left_stowed_state(parachute) for parachute in parachutes)
+
 def stage_has_engine(vessel, stage_number):
   return any(
     engine.part.stage == stage_number

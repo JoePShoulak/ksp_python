@@ -4,6 +4,18 @@
   padding: 1rem 0.75rem 2rem;
 }
 
+.popout-app {
+  width: 100%;
+  min-height: 100svh;
+  padding: 0.75rem;
+}
+
+.popout-app .actions-column,
+.popout-app .panel,
+.popout-app .visualization-subpanel {
+  width: 100%;
+}
+
 .app-header {
   display: flex;
   flex-direction: column;

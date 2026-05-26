@@ -6,6 +6,7 @@ import time
 from flask import Flask, jsonify, request  # type: ignore
 import krpc # type: ignore
 
+from flight_recorder import finish_flight, read_last_flight, start_flight
 from krpc_utils import (
   close_connection,
   get_connection_ledger,
@@ -27,10 +28,12 @@ from mission_state import (
   is_vessel_lost_error,
   record_mission_event,
 )
+from maneuvers.constants import LKO_TOURISM_MAX_LAUNCH_ATTEMPTS
 from maneuvers.launch import (
   land_rocket,
   launch_to_orbit,
   lko_tourism,
+  wait_for_launch_revert,
   wait_one_hour,
 )
 from telemetry import TLM
@@ -231,6 +234,7 @@ def run_action_thread(action, callback, abort_sequence):
       return
 
     TLM.reset()
+    start_flight(action)
     callback()
   except MissionAborted as error:
     if is_graceful_vessel_lost_message(error):
@@ -245,6 +249,7 @@ def run_action_thread(action, callback, abort_sequence):
       LAST_ACTION_ERROR = str(error)
       record_mission_event("action_error", action, error=LAST_ACTION_ERROR)
   finally:
+    finish_flight(LAST_ACTION_ERROR)
     record_mission_event("action_thread_finish", action)
     TLM.reset()
 
@@ -557,9 +562,47 @@ def krpc_benchmark():
 
 @app.route("/api/actions/launch_rocket", methods=["POST"])
 def launch_rocket_route():
+  options = request.get_json(silent=True) or {}
+  revert_on_failure = bool(options.get("revert_on_failure"))
+  retry_on_revert = bool(options.get("retry_on_revert") and revert_on_failure)
+
+  def launch_with_options():
+    attempt = 1
+
+    while True:
+      record_mission_event(
+        "launch_action_attempt",
+        "launch_rocket",
+        attempt=attempt,
+        revert_on_failure=revert_on_failure,
+        retry_on_revert=retry_on_revert,
+      )
+
+      if launch_to_orbit(revert_on_orbit_failure=revert_on_failure):
+        return
+
+      record_mission_event("launch_action_failed", "launch_rocket", attempt=attempt)
+
+      if not revert_on_failure or not retry_on_revert:
+        return
+
+      if attempt >= LKO_TOURISM_MAX_LAUNCH_ATTEMPTS:
+        record_mission_event(
+          "launch_action_retry_limit_reached",
+          "launch_rocket",
+          attempt=attempt,
+          maximum_attempts=LKO_TOURISM_MAX_LAUNCH_ATTEMPTS,
+        )
+        raise MissionAborted(
+          "Launch stopped because it failed repeatedly after revert"
+        )
+
+      wait_for_launch_revert()
+      attempt += 1
+
   return run_action(
     "launch_rocket",
-    launch_to_orbit,
+    launch_with_options,
     "Launch started",
   )
 
@@ -584,9 +627,16 @@ def wait_one_hour_route():
 
 @app.route("/api/actions/lko_tourism", methods=["POST"])
 def lko_tourism_route():
+  options = request.get_json(silent=True) or {}
+  revert_on_failure = bool(options.get("revert_on_failure"))
+  retry_on_revert = bool(options.get("retry_on_revert") and revert_on_failure)
+
   return run_action(
     "lko_tourism",
-    lko_tourism,
+    lambda: lko_tourism(
+      revert_on_failure=revert_on_failure,
+      retry_on_revert=retry_on_revert,
+    ),
     "LKO tourism sequence started",
   )
 
@@ -675,6 +725,16 @@ def get_telemetry():
     return build_telemetry_response(snapshot, "stream")
 
   return build_telemetry_response(None, "initializing")
+
+@app.route("/api/telemetry/last-flight-log", methods=["GET"])
+@app.route("/api/logs/last-flight", methods=["GET"])
+def get_last_flight_log():
+  limit = request.args.get("limit", default=None, type=int)
+
+  return jsonify({
+    "ok": True,
+    **read_last_flight(limit=limit),
+  })
 
 
 # HANDLERS

@@ -36,16 +36,67 @@ from .constants import (
   CIRCULARIZATION_TIME_TO_APOAPSIS_SLOPE,
   CIRCULARIZATION_TIME_TO_APOAPSIS_TARGET,
   CIRCULARIZATION_TOURISM_PERIAPSIS,
+  LAUNCH_ASCENT_FAILURE_ALTITUDE,
+  LAUNCH_ASCENT_FAILURE_VERTICAL_SPEED,
   RAILS_WARP_FACTOR,
 )
 from .control import (
   coast_to_ut,
+  maintain_coast_warp,
   manual_physics_warp_until,
   read_autopilot_error,
   wait_for_autopilot_alignment,
 )
 from .descent import configure_suborbital_landing
-from .vessel import stage_has_engine
+from .vessel import parachutes_have_deployed, stage_has_engine
+
+def is_falling_before_space():
+  return (
+    TLM.read("altitude") < LAUNCH_ASCENT_FAILURE_ALTITUDE and
+    TLM.read("vertical_speed") <= LAUNCH_ASCENT_FAILURE_VERTICAL_SPEED
+  )
+
+def ascent_failed(vessel):
+  return is_falling_before_space() or parachutes_have_deployed(vessel)
+
+def circularization_failed(vessel, reached_space):
+  if parachutes_have_deployed(vessel):
+    return True
+
+  return not reached_space and is_falling_before_space()
+
+def update_reached_space(reached_space):
+  return reached_space or TLM.read("altitude") >= CIRCULARIZATION_ATMOSPHERE_ALTITUDE
+
+
+def record_falling_before_space(event):
+  record_mission_event(
+    event,
+    "Launch",
+    altitude=TLM.read("altitude"),
+    vertical_speed=TLM.read("vertical_speed"),
+    apoapsis=TLM.read("apoapsis"),
+    periapsis=TLM.read("periapsis"),
+    time_to_apoapsis=TLM.read("time_to_apoapsis"),
+  )
+
+def record_parachute_ascent_failure():
+  record_mission_event(
+    "circularization_parachute_deployed",
+    "Launch",
+    altitude=TLM.read("altitude"),
+    vertical_speed=TLM.read("vertical_speed"),
+    apoapsis=TLM.read("apoapsis"),
+    periapsis=TLM.read("periapsis"),
+    time_to_apoapsis=TLM.read("time_to_apoapsis"),
+  )
+
+def record_ascent_failure(event, vessel):
+  if parachutes_have_deployed(vessel):
+    record_parachute_ascent_failure()
+    return
+
+  record_falling_before_space(event)
 
 def get_circularization_periapsis_throttle(periapsis):
   if periapsis >= CIRCULARIZATION_FINE_TRIM_PERIAPSIS:
@@ -190,7 +241,7 @@ def should_cut_circularization_burn(ut, apoapsis_ut):
 
   return None
 
-def circularize(conn, vessel, guard):
+def circularize(conn, vessel, guard, recover_suborbital_failure=True):
   guard.check(force=True)
 
   manual_physics_warp_until(
@@ -202,8 +253,15 @@ def circularize(conn, vessel, guard):
       CIRCULARIZATION_LEAD_TIME + CIRCULARIZATION_ALIGNMENT_BUFFER
     ),
     warp_factor=ASCENT_PHYSICS_WARP_FACTOR,
+    abort_condition=lambda: ascent_failed(vessel),
     guard=guard,
   )
+
+  if ascent_failed(vessel):
+    record_ascent_failure("circularization_descending_before_atmosphere", vessel)
+    return False
+
+  reached_space = update_reached_space(False)
 
   guard.check(force=True)
   TLM.update("Aiming prograde")
@@ -265,7 +323,15 @@ def circularize(conn, vessel, guard):
     time_to_apoapsis=TLM.read("time_to_apoapsis"),
   )
 
-  if not wait_for_autopilot_alignment(vessel, guard, "Aiming prograde", max_wait=45):
+  if not wait_for_autopilot_alignment(
+    vessel,
+    guard,
+    "Aiming prograde",
+    max_wait=45,
+    conn=conn,
+    warp_while_waiting=True,
+    physics_warp_factor=ASCENT_PHYSICS_WARP_FACTOR,
+  ):
     vessel.control.throttle = 0
     record_mission_event(
       "circularization_alignment_failed",
@@ -284,10 +350,24 @@ def circularize(conn, vessel, guard):
     time_to_apoapsis=TLM.read("time_to_apoapsis"),
   )
 
-  while TLM.read("ut") < circularization_start_ut:
-    guard.check()
-    TLM.update("Waiting to Circularize")
-    time.sleep(CIRCULARIZATION_BURN_INTERVAL)
+  try:
+    while TLM.read("ut") < circularization_start_ut:
+      guard.check()
+      TLM.update("Waiting to Circularize")
+      reached_space = update_reached_space(reached_space)
+
+      if circularization_failed(vessel, reached_space):
+        vessel.control.throttle = 0
+        record_ascent_failure("circularization_wait_descending_before_atmosphere", vessel)
+        return False
+
+      maintain_coast_warp(
+        conn,
+        physics_warp_factor=ASCENT_PHYSICS_WARP_FACTOR,
+      )
+      time.sleep(CIRCULARIZATION_BURN_INTERVAL)
+  finally:
+    stop_warp(conn)
 
   guard.check(force=True)
   soft_trim_recorded = False
@@ -296,6 +376,13 @@ def circularize(conn, vessel, guard):
   while TLM.read("periapsis") < CIRCULARIZATION_TARGET_PERIAPSIS:
     guard.check()
     TLM.update("Circularizing")
+    reached_space = update_reached_space(reached_space)
+
+    if circularization_failed(vessel, reached_space):
+      vessel.control.throttle = 0
+      record_ascent_failure("circularization_burn_descending_before_atmosphere", vessel)
+      return False
+
     autopilot_error = read_autopilot_error(vessel)
 
     if autopilot_error is not None and autopilot_error > AUTOPILOT_ALIGNMENT_ERROR:
@@ -308,7 +395,15 @@ def circularize(conn, vessel, guard):
         periapsis=TLM.read("periapsis"),
       )
 
-      if not wait_for_autopilot_alignment(vessel, guard, "Reacquiring prograde", max_wait=10):
+      if not wait_for_autopilot_alignment(
+        vessel,
+        guard,
+        "Reacquiring prograde",
+        max_wait=10,
+        conn=conn,
+        warp_while_waiting=True,
+        physics_warp_factor=ASCENT_PHYSICS_WARP_FACTOR,
+      ):
         return False
 
       vessel.control.throttle = 0
@@ -373,7 +468,17 @@ def circularize(conn, vessel, guard):
       elif TLM.read("periapsis") < CIRCULARIZATION_ATMOSPHERE_ALTITUDE:
         TLM.update("Orbit failed")
         vessel.control.throttle = 0
-        configure_suborbital_landing(conn, vessel, guard)
+        record_mission_event(
+          "circularization_suborbital_failure",
+          "Launch",
+          apoapsis=TLM.read("apoapsis"),
+          periapsis=TLM.read("periapsis"),
+          recover_suborbital_failure=recover_suborbital_failure,
+        )
+
+        if recover_suborbital_failure:
+          configure_suborbital_landing(conn, vessel, guard)
+
         return False
 
     time.sleep(CIRCULARIZATION_BURN_INTERVAL)

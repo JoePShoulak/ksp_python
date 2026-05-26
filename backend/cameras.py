@@ -211,26 +211,6 @@ def get_jrti_camera_snapshot():
   }
 
 
-def get_configured_stream_camera():
-  if not CAMERA_STREAM_URL:
-    return None
-
-  camera = {
-    "id": "jrti-stream",
-    "index": 0,
-    "part_name": "jrti-stream",
-    "label": "JRTI Stream",
-    "modules": [],
-    "source": "configured_stream",
-  }
-
-  return {
-    **camera,
-    "stream_url": get_public_stream_url(get_camera_stream_url(camera)),
-    "stream_kind": CAMERA_STREAM_KIND,
-  }
-
-
 def get_camera_snapshot(vessel):
   jrti_snapshot = get_jrti_camera_snapshot()
 
@@ -264,19 +244,18 @@ def get_camera_snapshot(vessel):
       "modules": module_names,
     })
 
-  selected_camera = cameras[0] if cameras else None
-
-  if selected_camera:
-    selected_camera = {
-      **selected_camera,
-      "stream_url": get_public_stream_url(get_camera_stream_url(selected_camera)),
+  cameras = [
+    {
+      **camera,
+      "stream_url": get_public_stream_url(get_camera_stream_url(camera)),
       "stream_kind": CAMERA_STREAM_KIND,
     }
-  else:
-    selected_camera = get_configured_stream_camera()
+    for camera in cameras
+  ]
+  selected_camera = cameras[0] if cameras else None
 
   return {
-    "available": bool(cameras or selected_camera),
+    "available": bool(cameras),
     "count": len(cameras),
     "selected_index": 0 if cameras else None,
     "selected": selected_camera,

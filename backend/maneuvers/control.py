@@ -7,6 +7,7 @@ from telemetry import TLM
 from .constants import (
   AUTOPILOT_ALIGNMENT_ERROR,
   AUTOPILOT_ALIGNMENT_TIMEOUT,
+  CIRCULARIZATION_ATMOSPHERE_ALTITUDE,
   DESCENT_PHYSICS_WARP_FACTOR,
   LANDING_ATMOSPHERE_ALTITUDE,
   RAILS_WARP_FACTOR,
@@ -38,22 +39,55 @@ def set_rails_warp(conn, warp_factor):
   except Exception:
     pass
 
-def wait_for_autopilot_alignment(vessel, guard, status, max_wait=AUTOPILOT_ALIGNMENT_TIMEOUT):
+def maintain_coast_warp(
+  conn,
+  altitude=None,
+  physics_warp_factor=DESCENT_PHYSICS_WARP_FACTOR,
+  allow_rails=True,
+):
+  if altitude is None:
+    altitude = TLM.read("altitude")
+
+  if altitude < CIRCULARIZATION_ATMOSPHERE_ALTITUDE or not allow_rails:
+    set_physics_warp(conn, physics_warp_factor)
+  else:
+    set_rails_warp(conn, min(RAILS_WARP_FACTOR, conn.space_center.maximum_rails_warp_factor))
+
+def wait_for_autopilot_alignment(
+  vessel,
+  guard,
+  status,
+  max_wait=AUTOPILOT_ALIGNMENT_TIMEOUT,
+  conn=None,
+  warp_while_waiting=False,
+  physics_warp_factor=DESCENT_PHYSICS_WARP_FACTOR,
+):
   started_at = time.monotonic()
 
-  while time.monotonic() - started_at < max_wait:
-    guard.check()
-    TLM.update(status)
+  try:
+    while time.monotonic() - started_at < max_wait:
+      guard.check()
+      TLM.update(status)
 
-    try:
-      if vessel.auto_pilot.error <= AUTOPILOT_ALIGNMENT_ERROR:
-        return True
-    except Exception:
-      return False
+      if conn and warp_while_waiting:
+        maintain_coast_warp(
+          conn,
+          physics_warp_factor=physics_warp_factor,
+          allow_rails=False,
+        )
 
-    time.sleep(0.1)
+      try:
+        if abs(vessel.auto_pilot.error) <= AUTOPILOT_ALIGNMENT_ERROR:
+          return True
+      except Exception:
+        return False
 
-  return False
+      time.sleep(0.1)
+
+    return False
+  finally:
+    if conn and warp_while_waiting:
+      stop_warp(conn)
 
 def read_autopilot_error(vessel):
   try:

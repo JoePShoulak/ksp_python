@@ -25,6 +25,7 @@ from .constants import (
 )
 from .control import (
   coast_to_ut,
+  maintain_coast_warp,
   maintain_physics_warp,
   rails_warp_to_atmosphere,
   read_autopilot_error,
@@ -218,7 +219,14 @@ def land_rocket():
     vessel.auto_pilot.target_direction = (0, -1, 0)
     vessel.auto_pilot.target_roll = 0
     record_mission_event("land_align_retrograde_start", "Land")
-    if not wait_for_autopilot_alignment(vessel, guard, "Pointing retrograde", max_wait=45):
+    if not wait_for_autopilot_alignment(
+      vessel,
+      guard,
+      "Pointing retrograde",
+      max_wait=45,
+      conn=conn,
+      warp_while_waiting=True,
+    ):
       record_mission_event(
         "land_align_retrograde_failed",
         "Land",
@@ -235,23 +243,41 @@ def land_rocket():
       autopilot_error=read_autopilot_error(vessel),
     )
 
-    while TLM.read("ut") < burn_start_ut:
-      guard.check()
-      TLM.update("Waiting for deorbit burn")
-      autopilot_error = read_autopilot_error(vessel)
-      if autopilot_error is not None and autopilot_error > LANDING_DEORBIT_DRIFT_ERROR:
-        record_mission_event(
-          "land_align_retrograde_drifted_before_burn",
-          "Land",
-          autopilot_error=autopilot_error,
-          time_to_apoapsis=TLM.read("time_to_apoapsis"),
-        )
-        if not wait_for_autopilot_alignment(vessel, guard, "Reacquiring retrograde", max_wait=10):
-          raise MissionAborted("Land stopped because retrograde alignment was lost before deorbit burn")
+    try:
+      while TLM.read("ut") < burn_start_ut:
+        guard.check()
+        TLM.update("Waiting for deorbit burn")
+        autopilot_error = read_autopilot_error(vessel)
+        if autopilot_error is not None and abs(autopilot_error) > LANDING_DEORBIT_DRIFT_ERROR:
+          record_mission_event(
+            "land_align_retrograde_drifted_before_burn",
+            "Land",
+            autopilot_error=autopilot_error,
+            time_to_apoapsis=TLM.read("time_to_apoapsis"),
+          )
+          if not wait_for_autopilot_alignment(
+            vessel,
+            guard,
+            "Reacquiring retrograde",
+            max_wait=10,
+            conn=conn,
+            warp_while_waiting=True,
+          ):
+            raise MissionAborted("Land stopped because retrograde alignment was lost before deorbit burn")
 
-      time.sleep(0.05)
+        maintain_coast_warp(conn)
+        time.sleep(0.05)
+    finally:
+      stop_warp(conn)
 
-    if not wait_for_autopilot_alignment(vessel, guard, "Final deorbit alignment", max_wait=5):
+    if not wait_for_autopilot_alignment(
+      vessel,
+      guard,
+      "Final deorbit alignment",
+      max_wait=5,
+      conn=conn,
+      warp_while_waiting=True,
+    ):
       record_mission_event(
         "land_final_align_retrograde_failed",
         "Land",
@@ -277,17 +303,25 @@ def land_rocket():
       guard.check()
       TLM.update("Lowering periapsis")
 
-      if read_autopilot_error(vessel) is not None and read_autopilot_error(vessel) > AUTOPILOT_ALIGNMENT_ERROR:
+      autopilot_error = read_autopilot_error(vessel)
+      if autopilot_error is not None and abs(autopilot_error) > AUTOPILOT_ALIGNMENT_ERROR:
         vessel.control.throttle = 0
         record_mission_event(
           "land_align_retrograde_lost",
           "Land",
-          autopilot_error=read_autopilot_error(vessel),
+          autopilot_error=autopilot_error,
           apoapsis=TLM.read("apoapsis"),
           periapsis=TLM.read("periapsis"),
         )
 
-        if not wait_for_autopilot_alignment(vessel, guard, "Reacquiring retrograde", max_wait=10):
+        if not wait_for_autopilot_alignment(
+          vessel,
+          guard,
+          "Reacquiring retrograde",
+          max_wait=10,
+          conn=conn,
+          warp_while_waiting=True,
+        ):
           raise MissionAborted("Land stopped because retrograde alignment was lost")
 
         vessel.control.throttle = LANDING_DEORBIT_THROTTLE

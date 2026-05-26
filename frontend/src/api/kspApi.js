@@ -69,15 +69,25 @@ async function fetchJson(url, options = {}) {
   return data;
 }
 
-export async function runKspAction(actionId) {
+export async function runKspAction(actionId, options = {}) {
   return fetchJson(`/api/actions/${actionId}`, {
     method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(options),
     timeoutMs: 30000,
   });
 }
 
 export async function abortKspAction() {
   return fetchJson("/api/abort", {
+    method: "POST",
+  });
+}
+
+export async function revertKspToLaunch() {
+  return fetchJson("/api/revert-to-launch", {
     method: "POST",
   });
 }

@@ -5,6 +5,7 @@ function ActionButton({
   action,
   activeActionId,
   missionLocked,
+  missionOptions,
   pendingActionId,
   vesselLinked,
   onRunAction,
@@ -16,11 +17,10 @@ function ActionButton({
   return (
     <button
       className={`action-button ${isActive ? "is-running" : ""}`}
-      onClick={() => onRunAction(action.id)}
+      onClick={() => onRunAction(action.id, missionOptions)}
       disabled={isDisabled}
       aria-busy={isActive || isPending}>
       <span>{action.label}</span>
-      {isPending && <span className="action-state">Starting</span>}
       {isActive && <span className="action-state">Running</span>}
     </button>
   );
@@ -51,21 +51,29 @@ function ActionsPanel({
   actionError,
   backendHealth,
   connectionState,
+  missionOptions,
   missionActive,
   pendingActionId,
   onAbortAction,
+  onMissionOptionChange,
+  onRevertToLaunch,
   onRunAction,
+  allowPopout = true,
 }) {
   const missionSteps = actions.filter(action => action.section !== "sequence");
   const sequences = actions.filter(action => action.section === "sequence");
   const missionLocked = missionActive || Boolean(activeActionId);
   const vesselLinked = connectionState === "live";
   const canAbortMission = missionLocked || Boolean(pendingActionId);
+  const canRevertMission = vesselLinked || missionLocked || Boolean(pendingActionId);
   const showBackendDebug = false;
 
   return (
     <div className="actions-column">
-      <Panel title={<MissionPanelTitle connectionState={connectionState} />}>
+      <Panel
+        title={<MissionPanelTitle connectionState={connectionState} />}
+        popout={allowPopout}
+        popoutName="Missions">
         <div className="actions-panel">
           <div className="action-group">
             {missionSteps.map(action => (
@@ -74,6 +82,7 @@ function ActionsPanel({
                 action={action}
                 activeActionId={activeActionId}
                 missionLocked={missionLocked}
+                missionOptions={missionOptions}
                 pendingActionId={pendingActionId}
                 vesselLinked={vesselLinked}
                 onRunAction={onRunAction}
@@ -89,6 +98,7 @@ function ActionsPanel({
                   action={action}
                   activeActionId={activeActionId}
                   missionLocked={missionLocked}
+                  missionOptions={missionOptions}
                   pendingActionId={pendingActionId}
                   vesselLinked={vesselLinked}
                   onRunAction={onRunAction}
@@ -97,30 +107,68 @@ function ActionsPanel({
             </div>
           )}
 
+          <div className="mission-options" aria-label="LKO tourism options">
+            <label className="mission-option">
+              <input
+                type="checkbox"
+                checked={missionOptions.revertOnFailure}
+                onChange={event =>
+                  onMissionOptionChange("revertOnFailure", event.target.checked)
+                }
+                disabled={missionLocked || Boolean(pendingActionId)}
+              />
+              <span>Revert on Failure</span>
+            </label>
+
+            <label className="mission-option">
+              <input
+                type="checkbox"
+                checked={missionOptions.retryOnRevert}
+                onChange={event =>
+                  onMissionOptionChange("retryOnRevert", event.target.checked)
+                }
+                disabled={
+                  missionLocked ||
+                  Boolean(pendingActionId) ||
+                  !missionOptions.revertOnFailure
+                }
+              />
+              <span>Retry on Revert</span>
+            </label>
+          </div>
+
           {actionError && (
             <p className="action-error" role="status">
               {actionError}
             </p>
           )}
+
+          <div className="mission-abort">
+            <button
+              className="revert-button"
+              type="button"
+              onClick={onRevertToLaunch}
+              disabled={!canRevertMission}>
+              Revert to Launch
+            </button>
+            <button
+              className="abort-button"
+              type="button"
+              onClick={onAbortAction}
+              disabled={!canAbortMission}>
+              Abort Mission
+            </button>
+          </div>
         </div>
       </Panel>
 
       {/* Keep this debug card available for troubleshooting backend/API health. */}
       {showBackendDebug && (
-        <Panel title="Backend">
+        <Panel title="Backend" popout={false}>
           <BackendHealthPanel backendHealth={backendHealth} />
         </Panel>
       )}
 
-      <Panel title="Abort">
-        <button
-          className="abort-button"
-          type="button"
-          onClick={onAbortAction}
-          disabled={!canAbortMission}>
-          Abort Mission
-        </button>
-      </Panel>
     </div>
   );
 }

@@ -5,6 +5,7 @@ import {
   getBackendHealth,
   getMissionStatus,
   getTelemetry,
+  revertKspToLaunch,
   runKspAction,
 } from "../api/kspApi";
 
@@ -12,8 +13,9 @@ const BACKEND_OFFLINE_FAILURE_LIMIT = 3;
 const VESSEL_RECONNECT_FAILURE_LIMIT = 20;
 const POLL_TIMEOUT_MS = 2500;
 const LIVE_POLL_INTERVAL_MS = 750;
-const IDLE_POLL_INTERVAL_MS = 750;
+const IDLE_POLL_INTERVAL_MS = 3000;
 const MISSION_STATUS_INTERVAL_MS = 1500;
+const IDLE_MISSION_STATUS_INTERVAL_MS = 5000;
 const BACKEND_HEALTH_INTERVAL_MS = 5000;
 const API_RECENT_SUCCESS_MS = 15000;
 const ACTION_SETTLE_MS = 750;
@@ -44,7 +46,6 @@ export function useKspPolling() {
 
   const hasVesselRef = useLatestRef(hasVessel);
   const telemetryRef = useLatestRef(telemetry);
-  const connectionStateRef = useLatestRef(connectionState);
   const activeActionIdRef = useLatestRef(activeActionId);
   const missionActiveRef = useLatestRef(missionActive);
   const activeActionStartedAtRef = useRef(0);
@@ -196,6 +197,8 @@ export function useKspPolling() {
         setActionError(null);
         setActiveActionId(null);
         setPendingActionId(null);
+      } else if (isIgnorableTelemetryInitError(missionError)) {
+        setActionError(null);
       } else if (missionError) {
         setActionError(missionError);
       }
@@ -222,7 +225,7 @@ export function useKspPolling() {
     telemetryRef,
   ]);
 
-  const runAction = useCallback(async actionId => {
+  const runAction = useCallback(async (actionId, options = {}) => {
     const previousActionId = activeActionIdRef.current;
 
     if (
@@ -240,7 +243,7 @@ export function useKspPolling() {
     await new Promise(resolve => window.requestAnimationFrame(resolve));
 
     try {
-      await runKspAction(actionId);
+      await runKspAction(actionId, normalizeMissionOptions(actionId, options));
       setActiveActionId(actionId);
       setMissionActive(true);
     } catch (error) {
@@ -304,6 +307,31 @@ export function useKspPolling() {
     }
   }, [pollMissionStatus, pollTelemetry]);
 
+  const revertToLaunch = useCallback(async () => {
+    setPendingActionId(null);
+    setActiveActionId(null);
+    setMissionActive(false);
+    setActionError(null);
+
+    try {
+      await revertKspToLaunch();
+    } catch (error) {
+      setActionError(error.message || "Revert request failed");
+    }
+
+    try {
+      await pollMissionStatus();
+    } catch {
+      // The revert request was sent; the normal poll loop will retry status.
+    }
+
+    try {
+      await pollTelemetry();
+    } catch {
+      // The revert request was sent; the normal poll loop will retry telemetry.
+    }
+  }, [pollMissionStatus, pollTelemetry]);
+
   useEffect(() => {
     let isMounted = true;
     let timeoutId = null;
@@ -318,12 +346,16 @@ export function useKspPolling() {
 
         try {
           const now = Date.now();
+          const missionBusy =
+            activeActionIdRef.current || missionActiveRef.current;
+          const missionStatusIntervalMs = hasVesselRef.current
+            ? MISSION_STATUS_INTERVAL_MS
+            : IDLE_MISSION_STATUS_INTERVAL_MS;
           const shouldPollMissionStatus =
-            activeActionIdRef.current ||
-            missionActiveRef.current ||
-            now - lastMissionStatusPollRef.current >= MISSION_STATUS_INTERVAL_MS;
+            missionBusy ||
+            now - lastMissionStatusPollRef.current >= missionStatusIntervalMs;
           const shouldPollBackendHealth =
-            connectionStateRef.current !== "live" ||
+            lastBackendHealthPollRef.current === 0 ||
             now - lastBackendHealthPollRef.current >= BACKEND_HEALTH_INTERVAL_MS;
           const checks = [pollTelemetry({ timeoutMs: POLL_TIMEOUT_MS })];
 
@@ -360,7 +392,6 @@ export function useKspPolling() {
     };
   }, [
     activeActionIdRef,
-    connectionStateRef,
     hasVesselRef,
     missionActiveRef,
     pollBackendHealth,
@@ -379,6 +410,7 @@ export function useKspPolling() {
     backendHealth,
     pendingActionId,
     abortAction,
+    revertToLaunch,
     runAction,
   };
 }
@@ -407,4 +439,19 @@ function getMissionActionId(mission) {
 
 function isGracefulVesselLostError(message) {
   return String(message || "").includes("active vessel is no longer available");
+}
+
+function isIgnorableTelemetryInitError(message) {
+  return String(message || "").includes("Telemetry has not been initialized");
+}
+
+function normalizeMissionOptions(actionId, options) {
+  if (!["launch_rocket", "lko_tourism"].includes(actionId)) {
+    return {};
+  }
+
+  return {
+    revert_on_failure: Boolean(options.revertOnFailure),
+    retry_on_revert: Boolean(options.retryOnRevert && options.revertOnFailure),
+  };
 }

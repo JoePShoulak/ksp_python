@@ -5,6 +5,7 @@ import threading
 import time
 
 from cameras import get_camera_snapshot
+from flight_recorder import record_snapshot
 from krpc_utils import (
   close_connection,
   get_vessel_identifier,
@@ -863,6 +864,8 @@ class Telemetry:
       self._data = snapshot
       self._updated_at = time.time()
 
+    record_snapshot(snapshot)
+
     return snapshot
 
   def read(self, name):
@@ -913,6 +916,7 @@ class Telemetry:
     with self._lock:
       self._data.update(values)
       self._updated_at = time.time()
+      snapshot = dict(self._data)
       self._timing = {
         "status": status,
         "include_slow": bool(include_slow),
@@ -932,6 +936,8 @@ class Telemetry:
         f"total={self._timing['total_seconds']:.3f}s",
         flush=True,
       )
+
+    record_snapshot(snapshot)
       
   def is_initialized(self):
     return self._initialized

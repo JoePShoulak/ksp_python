@@ -51,7 +51,12 @@
   .subpanel-camera .camera-viewport {
     /* TODO: revisit mobile JRTI sizing once we can compare phone screenshots. */
     aspect-ratio: auto;
-    min-height: clamp(30rem, 78svh, 44rem);
+    min-height: clamp(32rem, 78svh, 48rem);
+  }
+
+  .subpanel-camera .camera-viewport.has-camera-grid {
+    min-height: 0;
+    aspect-ratio: 2.2 / 1;
   }
 }
 
@@ -89,6 +94,10 @@
   .actions-panel {
     grid-template-columns: 1fr;
     gap: 0.55rem;
+  }
+
+  .mission-options {
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .status-details div,
@@ -250,14 +259,18 @@
     padding: 0.65rem;
   }
 
-  .panel > h2,
-  .visualization-subpanel h3 {
+  .panel .card-title-row,
+  .visualization-subpanel .card-title-row {
     margin-bottom: 0.55rem;
   }
 
   .actions-panel {
     grid-template-columns: minmax(0, 1fr);
     gap: 0.55rem;
+  }
+
+  .mission-options {
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .panel-title-row {
@@ -318,7 +331,12 @@
 
   .subpanel-camera .camera-viewport {
     aspect-ratio: auto;
-    min-height: clamp(20rem, 62svh, 28rem);
+    min-height: clamp(30rem, 76svh, 44rem);
+  }
+
+  .subpanel-camera .camera-viewport.has-camera-grid {
+    min-height: 0;
+    aspect-ratio: 2.2 / 1;
   }
 
   .visualization-subpanel canvas {
