@@ -26,7 +26,12 @@ from .constants import (
 )
 from .control import read_autopilot_error, reset_manual_controls
 from .descent import configure_suborbital_landing, warp_through_aerobraking
-from .vessel import parachutes_have_deployed, stage_has_engine, vessel_is_down
+from .vessel import (
+  parachutes_have_deployed,
+  should_stage_spent_solid_boosters,
+  stage_has_engine,
+  vessel_is_down,
+)
 
 class LaunchAscentFailed(MissionAborted):
   pass
@@ -190,6 +195,9 @@ def gravity_turn_to_orbit(conn, vessel, guard):
   vessel.auto_pilot.target_direction = (0, 1, 0)
   vessel.auto_pilot.target_roll = 0
 
+  peak_stage_thrust = max(0, safe_value(lambda: vessel.available_thrust, 0))
+  last_stage = vessel.control.current_stage
+
   while TLM.read("apoapsis") < LAUNCH_TARGET_APOAPSIS:
     TLM.update("Staging to space")
     check_ascent_failed(
@@ -211,9 +219,41 @@ def gravity_turn_to_orbit(conn, vessel, guard):
 
     current_stage = vessel.control.current_stage
     next_stage = current_stage - 1
+    available_thrust = safe_value(lambda: vessel.available_thrust, 0)
 
-    if vessel.available_thrust < 0.1 and stage_has_engine(vessel, next_stage):
+    if current_stage != last_stage:
+      peak_stage_thrust = max(0, available_thrust)
+      last_stage = current_stage
+    else:
+      peak_stage_thrust = max(peak_stage_thrust, available_thrust)
+
+    mixed_booster_thrust_drop = (
+      peak_stage_thrust > 0
+      and available_thrust > 0.1
+      and available_thrust < peak_stage_thrust * 0.55
+      and stage_has_engine(vessel, current_stage)
+    )
+
+    if (
+      should_stage_spent_solid_boosters(vessel, current_stage)
+      or mixed_booster_thrust_drop
+    ):
+      record_mission_event(
+        "launch_spent_srb_stage_separated",
+        "Launch",
+        stage=current_stage,
+        available_thrust=available_thrust,
+        peak_stage_thrust=peak_stage_thrust,
+        altitude=altitude,
+        apoapsis=TLM.read("apoapsis"),
+      )
       vessel.control.activate_next_stage()
+      peak_stage_thrust = 0
+      last_stage = safe_value(lambda: vessel.control.current_stage, current_stage)
+    elif available_thrust < 0.1 and stage_has_engine(vessel, next_stage):
+      vessel.control.activate_next_stage()
+      peak_stage_thrust = 0
+      last_stage = safe_value(lambda: vessel.control.current_stage, current_stage)
 
     time.sleep(0.1)
 

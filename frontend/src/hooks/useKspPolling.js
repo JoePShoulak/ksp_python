@@ -23,6 +23,8 @@ const ACTION_SETTLE_MS = 750;
 const MISSION_PHASE_ACTIONS = {
   Launch: "launch_rocket",
   Land: "land_rocket",
+  "Mun Flyby": "flyby_mun",
+  "Periapsis Circularize": "circularize_at_periapsis",
   Wait: "wait_one_hour",
   lko_tourism: "lko_tourism",
 };

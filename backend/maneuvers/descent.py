@@ -177,6 +177,13 @@ def land_rocket():
     record_mission_event("land_tlm_begin_start", "Land")
     TLM.begin(conn, vessel)
     record_mission_event("land_tlm_begin_done", "Land")
+
+    body_name = getattr(vessel.orbit.body, "name", None)
+    if body_name != "Kerbin":
+      raise MissionAborted(
+        f"Land stopped because the vessel is orbiting {body_name or 'unknown'}, not Kerbin"
+      )
+
     TLM.update("Preparing deorbit burn")
     record_mission_event("land_guard_check_start", "Land")
     guard.check(force=True)
