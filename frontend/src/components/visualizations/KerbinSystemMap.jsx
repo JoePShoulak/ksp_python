@@ -64,6 +64,13 @@ function sketch(p5) {
   }
 
   function getMaxWorldRadius(system) {
+    const visualMaxWorldRadius = props.telemetry?.visualizations?.kerbin_system
+      ?.max_world_radius;
+
+    if (isFiniteNumber(visualMaxWorldRadius)) {
+      return visualMaxWorldRadius;
+    }
+
     const bodyRadii = (system?.bodies ?? [])
       .filter(body => hasVector(body?.position))
       .map(body => getMapVectorMagnitude(body.position));
@@ -100,6 +107,21 @@ function sketch(p5) {
     const angle = getAngleFromMapVector(vector);
 
     return getPointFromRadiusAndAngle(displayRadius, angle);
+  }
+
+  function getPointFromVisual(visual) {
+    if (
+      visual &&
+      isFiniteNumber(visual.radius_ratio) &&
+      isFiniteNumber(visual.angle)
+    ) {
+      return getPointFromRadiusAndAngle(
+        getMaxDrawRadius() * visual.radius_ratio,
+        visual.angle,
+      );
+    }
+
+    return null;
   }
 
   function getBodyColor(name) {
@@ -144,20 +166,24 @@ function sketch(p5) {
   }
 
   function drawKerbin(system, maxWorldRadius) {
-    const kerbin = system?.reference_body;
+    const visualSystem = props.telemetry?.visualizations?.kerbin_system;
+    const kerbin = visualSystem?.reference_body ?? system?.reference_body;
     const kerbinRadius = getFiniteNumber(
       kerbin?.radius,
       FALLBACK_KERBIN_RADIUS,
     );
-    const atmosphereRadius = mapWorldRadiusToDisplayRadius(
-      kerbinRadius + ATMOSPHERE_ALTITUDE,
-      maxWorldRadius,
-    );
+    const atmosphereRadius = isFiniteNumber(
+      kerbin?.visual?.atmosphere_radius_ratio,
+    )
+      ? kerbin.visual.atmosphere_radius_ratio * getMaxDrawRadius()
+      : mapWorldRadiusToDisplayRadius(
+          kerbinRadius + ATMOSPHERE_ALTITUDE,
+          maxWorldRadius,
+        );
 
-    const displayKerbinRadius = mapWorldRadiusToDisplayRadius(
-      kerbinRadius,
-      maxWorldRadius,
-    );
+    const displayKerbinRadius = isFiniteNumber(kerbin?.visual?.radius_ratio)
+      ? kerbin.visual.radius_ratio * getMaxDrawRadius()
+      : mapWorldRadiusToDisplayRadius(kerbinRadius, maxWorldRadius);
 
     const gradientSteps = 28;
 
@@ -188,30 +214,34 @@ function sketch(p5) {
   }
 
   function drawCircularOrbitFromPosition(body, maxWorldRadius) {
-    if (!hasVector(body?.position)) {
+    const displayRadius = isFiniteNumber(body?.visual?.radius_ratio)
+      ? body.visual.radius_ratio * getMaxDrawRadius()
+      : null;
+
+    if (displayRadius === null && !hasVector(body?.position)) {
       return;
     }
 
-    const worldRadius = getMapVectorMagnitude(body.position);
-    const displayRadius = mapWorldRadiusToDisplayRadius(
-      worldRadius,
+    const orbitRadius = displayRadius ?? mapWorldRadiusToDisplayRadius(
+      getMapVectorMagnitude(body.position),
       maxWorldRadius,
     );
 
     p5.noFill();
     p5.stroke(90);
     p5.strokeWeight(1);
-    drawSmoothCircleOutline(displayRadius);
+    drawSmoothCircleOutline(orbitRadius);
   }
 
   function drawBody(body, maxWorldRadius) {
-    if (!hasVector(body?.position)) {
+    if (!body?.visual && !hasVector(body?.position)) {
       return;
     }
 
     const color = getBodyColor(body.name);
     const dotSize = getBodyDotSize(body.name);
-    const point = getPointFromWorldVector(body.position, maxWorldRadius);
+    const point = getPointFromVisual(body.visual) ??
+      getPointFromWorldVector(body.position, maxWorldRadius);
 
     p5.noStroke();
     p5.fill(...color);
@@ -286,6 +316,34 @@ function sketch(p5) {
   }
 
   function drawShipOrbit(system, maxWorldRadius) {
+    const visualPoints = props.telemetry?.visualizations?.kerbin_system
+      ?.ship_orbit_points;
+
+    if (visualPoints) {
+      p5.stroke(180);
+      p5.strokeWeight(1.5);
+      p5.noFill();
+
+      let previousPoint = null;
+
+      for (const visualPoint of visualPoints) {
+        const point = getPointFromVisual(visualPoint);
+
+        if (!point) {
+          previousPoint = null;
+          continue;
+        }
+
+        if (previousPoint) {
+          p5.line(previousPoint.x, previousPoint.y, point.x, point.y);
+        }
+
+        previousPoint = point;
+      }
+
+      return;
+    }
+
     const vessel = system?.vessel;
     const kerbinRadius = getFiniteNumber(
       system?.reference_body?.radius,
@@ -338,13 +396,15 @@ function sketch(p5) {
   }
 
   function drawShip(system, maxWorldRadius) {
-    const vessel = system?.vessel;
+    const visualSystem = props.telemetry?.visualizations?.kerbin_system;
+    const vessel = visualSystem?.vessel ?? system?.vessel;
 
-    if (!hasVector(vessel?.position)) {
+    if (!vessel?.visual && !hasVector(vessel?.position)) {
       return;
     }
 
-    const point = getPointFromWorldVector(vessel.position, maxWorldRadius);
+    const point = getPointFromVisual(vessel.visual) ??
+      getPointFromWorldVector(vessel.position, maxWorldRadius);
 
     p5.noStroke();
     p5.fill(255);
@@ -373,10 +433,15 @@ function sketch(p5) {
     if (p5.canvas && (p5.width !== props.width || p5.height !== props.height)) {
       p5.resizeCanvas(props.width, props.height);
     }
+
+    if (p5.canvas) {
+      p5.redraw();
+    }
   };
 
   p5.setup = () => {
     p5.createCanvas(props.width, props.height);
+    p5.noLoop();
   };
 
   p5.draw = () => {
@@ -390,7 +455,10 @@ function sketch(p5) {
       return;
     }
 
-    for (const body of system.bodies ?? []) {
+    const visualSystem = props.telemetry?.visualizations?.kerbin_system;
+    const bodies = visualSystem?.bodies ?? system.bodies ?? [];
+
+    for (const body of bodies) {
       drawCircularOrbitFromPosition(body, maxWorldRadius);
     }
 
@@ -398,7 +466,7 @@ function sketch(p5) {
 
     drawShipOrbit(system, maxWorldRadius);
 
-    for (const body of system.bodies ?? []) {
+    for (const body of bodies) {
       drawBody(body, maxWorldRadius);
     }
 

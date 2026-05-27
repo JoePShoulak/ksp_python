@@ -80,8 +80,8 @@ export async function runKspAction(actionId, options = {}) {
   });
 }
 
-export async function abortKspAction() {
-  return fetchJson("/api/abort", {
+export async function releaseKspAction() {
+  return fetchJson("/api/release", {
     method: "POST",
   });
 }

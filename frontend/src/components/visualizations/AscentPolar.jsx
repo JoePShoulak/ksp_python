@@ -119,6 +119,15 @@ function sketch(p5) {
   }
 
   function getPolarPoint(altitude, longitude) {
+    const ship = props.telemetry?.visualizations?.ascent_polar?.ship;
+
+    if (ship) {
+      return getPointFromRadiusAndAngle(
+        ship.radius_ratio * getMaxDrawRadius(),
+        ship.angle,
+      );
+    }
+
     const radius = mapAltitudeToRadius(altitude);
     const angle = getAngleFromLongitude(longitude);
     const point = getPointFromRadiusAndAngle(radius, angle);
@@ -225,11 +234,16 @@ function sketch(p5) {
       p5.resizeCanvas(props.width, props.height);
       createTrailLayer();
     }
+
+    if (p5.canvas) {
+      p5.redraw();
+    }
   };
 
   p5.setup = () => {
     p5.createCanvas(props.width, props.height, p5.WEBGL);
     createTrailLayer();
+    p5.noLoop();
   };
 
   function updateTrailLayer(x, y, throttle, warpFactor) {
@@ -334,6 +348,24 @@ function sketch(p5) {
     periapsis,
     apoapsis,
   }) {
+    const orbitPoints = props.telemetry?.visualizations?.ascent_polar?.orbit_points;
+
+    if (orbitPoints) {
+      p5.fill(170);
+      p5.noStroke();
+
+      for (const orbitPoint of orbitPoints) {
+        const point = getPointFromRadiusAndAngle(
+          orbitPoint.radius_ratio * getMaxDrawRadius(),
+          orbitPoint.angle,
+        );
+
+        p5.circle(point.x, point.y, ORBIT_DOT_SIZE);
+      }
+
+      return;
+    }
+
     const orbitShape = getOrbitShape(periapsis, apoapsis);
     const orbitRotation = getOrbitRotation({
       altitude,

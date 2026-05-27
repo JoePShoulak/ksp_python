@@ -135,6 +135,12 @@ def warp_through_aerobraking(conn, vessel, guard):
   TLM.update("Landed")
   stop_warp(conn)
 
+def aim_landing_retrograde(vessel):
+  vessel.auto_pilot.engage()
+  vessel.auto_pilot.reference_frame = vessel.orbital_reference_frame
+  vessel.auto_pilot.target_direction = (0, -1, 0)
+  vessel.auto_pilot.target_roll = 0
+
 def suborbital_landing():
   conn, vessel = safe_connect("Launch")
   if not conn:
@@ -177,8 +183,7 @@ def land_rocket():
     record_mission_event("land_guard_check_done", "Land")
 
     record_mission_event("land_autopilot_setup_start", "Land")
-    vessel.auto_pilot.engage()
-    vessel.auto_pilot.reference_frame = vessel.orbital_reference_frame
+    aim_landing_retrograde(vessel)
     record_mission_event("land_autopilot_setup_done", "Land")
 
     apoapsis_arrival_ut = TLM.read("ut") + TLM.read("time_to_apoapsis")
@@ -214,10 +219,7 @@ def land_rocket():
     )
     guard.check(force=True)
     TLM.update("Pointing retrograde")
-    vessel.auto_pilot.engage()
-    vessel.auto_pilot.reference_frame = vessel.orbital_reference_frame
-    vessel.auto_pilot.target_direction = (0, -1, 0)
-    vessel.auto_pilot.target_roll = 0
+    aim_landing_retrograde(vessel)
     record_mission_event("land_align_retrograde_start", "Land")
     if not wait_for_autopilot_alignment(
       vessel,
@@ -255,6 +257,7 @@ def land_rocket():
             autopilot_error=autopilot_error,
             time_to_apoapsis=TLM.read("time_to_apoapsis"),
           )
+          aim_landing_retrograde(vessel)
           if not wait_for_autopilot_alignment(
             vessel,
             guard,
@@ -270,11 +273,12 @@ def land_rocket():
     finally:
       stop_warp(conn)
 
+    aim_landing_retrograde(vessel)
     if not wait_for_autopilot_alignment(
       vessel,
       guard,
       "Final deorbit alignment",
-      max_wait=5,
+      max_wait=12,
       conn=conn,
       warp_while_waiting=True,
     ):
@@ -287,6 +291,15 @@ def land_rocket():
         periapsis=TLM.read("periapsis"),
       )
       raise MissionAborted("Land stopped because retrograde alignment was not ready at deorbit burn")
+
+    record_mission_event(
+      "land_final_align_retrograde_done",
+      "Land",
+      autopilot_error=read_autopilot_error(vessel),
+      time_to_apoapsis=TLM.read("time_to_apoapsis"),
+      apoapsis=TLM.read("apoapsis"),
+      periapsis=TLM.read("periapsis"),
+    )
 
     TLM.update("Lowering periapsis")
     vessel.control.throttle = LANDING_DEORBIT_THROTTLE
@@ -314,6 +327,7 @@ def land_rocket():
           periapsis=TLM.read("periapsis"),
         )
 
+        aim_landing_retrograde(vessel)
         if not wait_for_autopilot_alignment(
           vessel,
           guard,

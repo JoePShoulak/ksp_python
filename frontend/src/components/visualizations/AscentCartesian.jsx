@@ -23,6 +23,7 @@ function sketch(p5) {
   };
 
   let trailLayer;
+  let backgroundLayer;
   let hasTelemetryConnected = false;
   let previousTrailPoint = null;
 
@@ -33,6 +34,11 @@ function sketch(p5) {
     });
 
     clearTrailLayer();
+  }
+
+  function createBackgroundLayer() {
+    backgroundLayer = p5.createGraphics(props.width, props.height);
+    drawBackground(backgroundLayer);
   }
 
   function clearTrailLayer() {
@@ -77,6 +83,15 @@ function sketch(p5) {
   }
 
   function getAscentPosition(telemetry) {
+    const visual = telemetry.visualizations?.ascent_cartesian?.ship;
+
+    if (visual) {
+      return {
+        x: visual.x_ratio * p5.width,
+        y: visual.y_ratio * getSkyHeight(),
+      };
+    }
+
     const altitude = getFiniteNumber(telemetry.altitude);
     const longitude = getFiniteNumber(telemetry.longitude);
 
@@ -95,12 +110,19 @@ function sketch(p5) {
     if (p5.canvas && (p5.width !== props.width || p5.height !== props.height)) {
       p5.resizeCanvas(props.width, props.height);
       createTrailLayer();
+      createBackgroundLayer();
+    }
+
+    if (p5.canvas) {
+      p5.redraw();
     }
   };
 
   p5.setup = () => {
     p5.createCanvas(props.width, props.height, p5.WEBGL);
     createTrailLayer();
+    createBackgroundLayer();
+    p5.noLoop();
   };
 
   function updateTrailLayer(x, y, throttle, warpFactor) {
@@ -138,49 +160,55 @@ function sketch(p5) {
     p5.image(trailLayer, -p5.width / 2, -p5.height / 2, p5.width, p5.height);
   }
 
-  function drawBackground() {
-    withTopLeftCoordinates(() => {
-      drawSkyGradient();
-      drawGround();
-      drawAtmosphereLine();
-    });
+  function drawBackground(layer) {
+    drawSkyGradient(layer);
+    drawGround(layer);
+    drawAtmosphereLine(layer);
   }
 
-  function drawSkyGradient() {
+  function drawSkyGradient(layer) {
     const skyHeight = getSkyHeight();
 
-    const topColor = p5.color(0, 0, 0);
-    const bottomColor = p5.color(0, 80, 180);
+    const topColor = layer.color(0, 0, 0);
+    const bottomColor = layer.color(0, 80, 180);
 
-    p5.noFill();
+    layer.noFill();
 
     for (let y = 0; y < skyHeight; y += 1) {
       const linearAmount = y / skyHeight;
       const exponentialAmount = Math.pow(linearAmount, 2.5);
-      const color = p5.lerpColor(topColor, bottomColor, exponentialAmount);
+      const color = layer.lerpColor(topColor, bottomColor, exponentialAmount);
 
-      p5.stroke(color);
-      p5.line(0, y, p5.width, y);
+      layer.stroke(color);
+      layer.line(0, y, p5.width, y);
     }
   }
 
-  function drawGround() {
-    p5.fill(0, 75, 0);
-    p5.noStroke();
-    p5.rect(0, getSkyHeight(), p5.width, GROUND_HEIGHT);
+  function drawGround(layer) {
+    layer.fill(0, 75, 0);
+    layer.noStroke();
+    layer.rect(0, getSkyHeight(), p5.width, GROUND_HEIGHT);
   }
 
-  function drawAtmosphereLine() {
-    const atmosphereY = mapAltitudeToY(ATMOSPHERE_ALTITUDE);
+  function drawAtmosphereLine(layer) {
+    const atmosphereYRatio =
+      props.telemetry?.visualizations?.ascent_cartesian?.atmosphere_y_ratio;
+    const atmosphereY = Number.isFinite(Number(atmosphereYRatio))
+      ? atmosphereYRatio * getSkyHeight()
+      : mapAltitudeToY(ATMOSPHERE_ALTITUDE);
 
-    p5.stroke(180);
-    p5.strokeWeight(1);
-    p5.line(0, atmosphereY, p5.width, atmosphereY);
+    layer.stroke(180);
+    layer.strokeWeight(1);
+    layer.line(0, atmosphereY, p5.width, atmosphereY);
   }
 
   function drawApoapsisLine(apoapsis) {
     withTopLeftCoordinates(() => {
-      const apoapsisY = mapAltitudeToY(apoapsis);
+      const apoapsisYRatio =
+        props.telemetry?.visualizations?.ascent_cartesian?.apoapsis_y_ratio;
+      const apoapsisY = Number.isFinite(Number(apoapsisYRatio))
+        ? apoapsisYRatio * getSkyHeight()
+        : mapAltitudeToY(apoapsis);
 
       p5.stroke("white");
       p5.strokeWeight(1);
@@ -221,7 +249,7 @@ function sketch(p5) {
 
     p5.background(15);
 
-    drawBackground();
+    p5.image(backgroundLayer, -p5.width / 2, -p5.height / 2, p5.width, p5.height);
 
     if (!hasTelemetryConnected) {
       drawDisconnectedState();

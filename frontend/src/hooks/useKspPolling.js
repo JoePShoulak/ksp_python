@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
-  abortKspAction,
+  releaseKspAction,
   getBackendHealth,
   getMissionStatus,
   getTelemetry,
@@ -12,8 +12,9 @@ import {
 const BACKEND_OFFLINE_FAILURE_LIMIT = 3;
 const VESSEL_RECONNECT_FAILURE_LIMIT = 20;
 const POLL_TIMEOUT_MS = 2500;
-const LIVE_POLL_INTERVAL_MS = 750;
+const LIVE_POLL_INTERVAL_MS = 1000;
 const IDLE_POLL_INTERVAL_MS = 3000;
+const HIDDEN_POLL_INTERVAL_MS = 5000;
 const MISSION_STATUS_INTERVAL_MS = 1500;
 const IDLE_MISSION_STATUS_INTERVAL_MS = 5000;
 const BACKEND_HEALTH_INTERVAL_MS = 5000;
@@ -282,28 +283,28 @@ export function useKspPolling() {
     pollTelemetry,
   ]);
 
-  const abortAction = useCallback(async () => {
+  const releaseAction = useCallback(async () => {
     setPendingActionId(null);
     setActiveActionId(null);
     setMissionActive(false);
     setActionError(null);
 
     try {
-      await abortKspAction();
+      await releaseKspAction();
     } catch (error) {
-      setActionError(error.message || "Abort request failed");
+      setActionError(error.message || "Release request failed");
     }
 
     try {
       await pollMissionStatus();
     } catch {
-      // The abort request was sent; the normal poll loop will retry status.
+      // The release request was sent; the normal poll loop will retry status.
     }
 
     try {
       await pollTelemetry();
     } catch {
-      // The abort request was sent; the normal poll loop will retry telemetry.
+      // The release request was sent; the normal poll loop will retry telemetry.
     }
   }, [pollMissionStatus, pollTelemetry]);
 
@@ -375,7 +376,9 @@ export function useKspPolling() {
         }
       }
 
-      const intervalMs = hasVesselRef.current
+      const intervalMs = document.hidden
+        ? HIDDEN_POLL_INTERVAL_MS
+        : hasVesselRef.current
         ? LIVE_POLL_INTERVAL_MS
         : IDLE_POLL_INTERVAL_MS;
       timeoutId = window.setTimeout(runPoll, intervalMs);
@@ -409,7 +412,7 @@ export function useKspPolling() {
     visualResetKey,
     backendHealth,
     pendingActionId,
-    abortAction,
+    releaseAction,
     revertToLaunch,
     runAction,
   };

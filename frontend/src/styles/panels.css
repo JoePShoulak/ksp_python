@@ -207,7 +207,7 @@
   line-height: 1.35;
 }
 
-.mission-abort {
+.mission-release {
   display: grid;
   gap: 0.65rem;
   padding-top: 0.8rem;
@@ -229,7 +229,7 @@
   background: rgba(104, 82, 31, 0.94);
 }
 
-.abort-button {
+.release-button {
   width: 100%;
   min-height: 3.4rem;
   border-color: rgba(255, 104, 104, 0.7);
@@ -240,7 +240,7 @@
   text-transform: uppercase;
 }
 
-.abort-button:hover {
+.release-button:hover {
   background: rgba(105, 30, 36, 0.95);
 }
 

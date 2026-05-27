@@ -59,7 +59,7 @@ function App() {
     visualResetKey,
     backendHealth,
     pendingActionId,
-    abortAction,
+    releaseAction,
     revertToLaunch,
     runAction,
   } = useKspPolling();
@@ -98,7 +98,7 @@ function App() {
         backendHealth={backendHealth}
         pendingActionId={pendingActionId}
         missionOptions={missionOptions}
-        onAbortAction={abortAction}
+        onReleaseAction={releaseAction}
         onRevertToLaunch={revertToLaunch}
         onMissionOptionChange={updateMissionOption}
         onRunAction={runAction}
@@ -127,7 +127,7 @@ function App() {
           pendingActionId={pendingActionId}
           actionError={actionError}
           missionActive={missionActive}
-          onAbortAction={abortAction}
+          onReleaseAction={releaseAction}
           onRevertToLaunch={revertToLaunch}
           onMissionOptionChange={updateMissionOption}
           onRunAction={runAction}
@@ -156,7 +156,7 @@ function PopoutDashboard({
   backendHealth,
   pendingActionId,
   missionOptions,
-  onAbortAction,
+  onReleaseAction,
   onRevertToLaunch,
   onMissionOptionChange,
   onRunAction,
@@ -180,7 +180,7 @@ function PopoutDashboard({
         pendingActionId={pendingActionId}
         actionError={actionError}
         missionActive={missionActive}
-        onAbortAction={onAbortAction}
+        onReleaseAction={onReleaseAction}
         onRevertToLaunch={onRevertToLaunch}
         onMissionOptionChange={onMissionOptionChange}
         onRunAction={onRunAction}

@@ -15,6 +15,16 @@ from krpc_utils import (
 )
 
 G0 = 9.80665
+KERBIN_RADIUS = 600000
+ASCENT_MIN_ALTITUDE = 70
+ASCENT_MAX_ALTITUDE = 100000
+ASCENT_ATMOSPHERE_ALTITUDE = 70000
+ASCENT_POLAR_KERBIN_RATIO = 0.58
+ASCENT_POLAR_MAX_ALTITUDE_RATIO = 0.94
+POLAR_ORBIT_DOT_COUNT = 220
+KERBIN_SYSTEM_FALLBACK_MAX_WORLD_RADIUS = 47000000 * 1.05
+KERBIN_SYSTEM_DISPLAY_EXPONENT = 0.38
+KERBIN_SYSTEM_SHIP_ORBIT_SEGMENTS = 180
 SLOW_TELEMETRY_INTERVAL = 10
 SLOW_TELEMETRY_LOG_THRESHOLD = 0.75
 ACTIVE_VESSEL_MISS_LIMIT = 60
@@ -307,6 +317,328 @@ def vector_to_json(vector):
     "x": vector[0],
     "y": vector[1],
     "z": vector[2],
+  }
+
+
+def finite_number(value, fallback=0):
+  try:
+    number = float(value)
+  except (TypeError, ValueError):
+    return fallback
+
+  if not math.isfinite(number):
+    return fallback
+
+  return number
+
+
+def clamp(value, minimum=0, maximum=1):
+  return max(minimum, min(maximum, value))
+
+
+def normalize_range(value, minimum, maximum, should_clamp=True):
+  if maximum == minimum:
+    return 0
+
+  ratio = (finite_number(value) - minimum) / (maximum - minimum)
+
+  if should_clamp:
+    return clamp(ratio)
+
+  return ratio
+
+
+def map_altitude_to_cartesian_y_ratio(altitude):
+  return 1 - normalize_range(
+    altitude,
+    ASCENT_MIN_ALTITUDE,
+    ASCENT_MAX_ALTITUDE,
+  )
+
+
+def map_altitude_to_polar_radius_ratio(altitude, should_clamp=True):
+  altitude = finite_number(altitude)
+
+  if altitude < 0:
+    return normalize_range(
+      altitude,
+      -KERBIN_RADIUS,
+      0,
+      should_clamp,
+    ) * ASCENT_POLAR_KERBIN_RATIO
+
+  altitude_ratio = normalize_range(
+    altitude,
+    0,
+    ASCENT_MAX_ALTITUDE,
+    should_clamp,
+  )
+
+  return (
+    ASCENT_POLAR_KERBIN_RATIO +
+    altitude_ratio * (ASCENT_POLAR_MAX_ALTITUDE_RATIO - ASCENT_POLAR_KERBIN_RATIO)
+  )
+
+
+def longitude_to_angle(longitude):
+  return math.radians(finite_number(longitude) - 90)
+
+
+def get_orbit_shape(periapsis_radius, apoapsis_radius):
+  safe_periapsis_radius = max(finite_number(periapsis_radius), 1)
+  safe_apoapsis_radius = max(finite_number(apoapsis_radius), 1)
+  semi_major_axis = (safe_periapsis_radius + safe_apoapsis_radius) / 2
+  eccentricity = clamp(
+    (safe_apoapsis_radius - safe_periapsis_radius) /
+    (safe_apoapsis_radius + safe_periapsis_radius),
+    0,
+    0.99,
+  )
+
+  return {
+    "semi_major_axis": semi_major_axis,
+    "eccentricity": eccentricity,
+    "semi_latus_rectum": semi_major_axis * (1 - eccentricity * eccentricity),
+  }
+
+
+def get_orbit_radius_at_true_anomaly(true_anomaly, orbit_shape):
+  if orbit_shape["eccentricity"] <= 0.0001:
+    return orbit_shape["semi_major_axis"]
+
+  return (
+    orbit_shape["semi_latus_rectum"] /
+    (1 + orbit_shape["eccentricity"] * math.cos(true_anomaly))
+  )
+
+
+def get_true_anomaly_for_radius(current_orbital_radius, orbit_shape):
+  if orbit_shape["eccentricity"] <= 0.0001:
+    return 0
+
+  cosine = (
+    orbit_shape["semi_latus_rectum"] / max(current_orbital_radius, 1) - 1
+  ) / orbit_shape["eccentricity"]
+
+  return math.acos(clamp(cosine, -1, 1))
+
+
+def build_ascent_cartesian_visual(snapshot):
+  longitude = finite_number(snapshot.get("longitude"))
+
+  return {
+    "ship": {
+      "x_ratio": normalize_range(longitude, -180, 180),
+      "y_ratio": map_altitude_to_cartesian_y_ratio(snapshot.get("altitude")),
+    },
+    "apoapsis_y_ratio": map_altitude_to_cartesian_y_ratio(snapshot.get("apoapsis")),
+    "atmosphere_y_ratio": map_altitude_to_cartesian_y_ratio(
+      ASCENT_ATMOSPHERE_ALTITUDE
+    ),
+  }
+
+
+def build_ascent_polar_orbit_points(snapshot):
+  altitude = finite_number(snapshot.get("altitude"))
+  longitude = finite_number(snapshot.get("longitude"))
+  vertical_speed = finite_number(snapshot.get("vertical_speed"))
+  periapsis = finite_number(snapshot.get("periapsis"))
+  apoapsis = finite_number(snapshot.get("apoapsis"))
+  current_orbital_radius = KERBIN_RADIUS + altitude
+  orbit_shape = get_orbit_shape(KERBIN_RADIUS + periapsis, KERBIN_RADIUS + apoapsis)
+  current_true_anomaly = get_true_anomaly_for_radius(
+    current_orbital_radius,
+    orbit_shape,
+  )
+
+  if vertical_speed < 0:
+    current_true_anomaly *= -1
+
+  orbit_rotation = longitude_to_angle(longitude) - current_true_anomaly
+  points = []
+
+  for index in range(POLAR_ORBIT_DOT_COUNT):
+    true_anomaly = index / POLAR_ORBIT_DOT_COUNT * math.tau
+    orbital_radius = get_orbit_radius_at_true_anomaly(true_anomaly, orbit_shape)
+
+    if orbital_radius < KERBIN_RADIUS:
+      continue
+
+    points.append({
+      "radius_ratio": map_altitude_to_polar_radius_ratio(
+        orbital_radius - KERBIN_RADIUS,
+      ),
+      "angle": true_anomaly + orbit_rotation,
+    })
+
+  return points
+
+
+def build_ascent_polar_visual(snapshot):
+  return {
+    "ship": {
+      "radius_ratio": map_altitude_to_polar_radius_ratio(snapshot.get("altitude")),
+      "angle": longitude_to_angle(snapshot.get("longitude")),
+    },
+    "kerbin_radius_ratio": ASCENT_POLAR_KERBIN_RATIO,
+    "atmosphere_radius_ratio": map_altitude_to_polar_radius_ratio(
+      ASCENT_ATMOSPHERE_ALTITUDE,
+    ),
+    "orbit_points": build_ascent_polar_orbit_points(snapshot),
+  }
+
+
+def has_vector(vector):
+  return (
+    isinstance(vector, dict) and
+    math.isfinite(finite_number(vector.get("x"), math.nan)) and
+    math.isfinite(finite_number(vector.get("y"), math.nan)) and
+    math.isfinite(finite_number(vector.get("z"), math.nan))
+  )
+
+
+def get_map_vector(vector):
+  return {
+    "x": finite_number((vector or {}).get("x")),
+    "y": finite_number((vector or {}).get("z")),
+  }
+
+
+def get_map_vector_magnitude(vector):
+  map_vector = get_map_vector(vector)
+  return math.sqrt(map_vector["x"] * map_vector["x"] + map_vector["y"] * map_vector["y"])
+
+
+def get_angle_from_map_vector(vector):
+  map_vector = get_map_vector(vector)
+  return math.atan2(map_vector["y"], map_vector["x"])
+
+
+def get_kerbin_system_max_world_radius(system):
+  body_radii = [
+    get_map_vector_magnitude(body.get("position"))
+    for body in system.get("bodies", [])
+    if has_vector(body.get("position"))
+  ]
+  vessel = system.get("vessel") or {}
+  vessel_radius = (
+    get_map_vector_magnitude(vessel.get("position"))
+    if has_vector(vessel.get("position"))
+    else 0
+  )
+
+  return max(KERBIN_SYSTEM_FALLBACK_MAX_WORLD_RADIUS, vessel_radius, *body_radii)
+
+
+def map_world_radius_to_display_ratio(world_radius, max_world_radius):
+  normalized_radius = clamp(finite_number(world_radius) / max(max_world_radius, 1))
+  return math.pow(normalized_radius, KERBIN_SYSTEM_DISPLAY_EXPONENT)
+
+
+def build_kerbin_body_visual(body, max_world_radius):
+  if not has_vector(body.get("position")):
+    return {
+      **body,
+      "visual": None,
+    }
+
+  world_radius = get_map_vector_magnitude(body.get("position"))
+
+  return {
+    **body,
+    "visual": {
+      "radius_ratio": map_world_radius_to_display_ratio(
+        world_radius,
+        max_world_radius,
+      ),
+      "angle": get_angle_from_map_vector(body.get("position")),
+    },
+  }
+
+
+def build_kerbin_ship_orbit_points(system, max_world_radius):
+  vessel = system.get("vessel") or {}
+  reference_body = system.get("reference_body") or {}
+  kerbin_radius = finite_number(reference_body.get("radius"), KERBIN_RADIUS)
+
+  if not has_vector(vessel.get("position")):
+    return []
+
+  periapsis = vessel.get("periapsis")
+  apoapsis = vessel.get("apoapsis")
+
+  if not math.isfinite(finite_number(periapsis, math.nan)):
+    return []
+
+  if not math.isfinite(finite_number(apoapsis, math.nan)):
+    return []
+
+  orbit_shape = get_orbit_shape(periapsis, apoapsis)
+  current_orbital_radius = get_map_vector_magnitude(vessel.get("position"))
+  ship_angle = get_angle_from_map_vector(vessel.get("position"))
+  orbit_rotation = ship_angle - get_true_anomaly_for_radius(
+    current_orbital_radius,
+    orbit_shape,
+  )
+  points = []
+
+  for index in range(KERBIN_SYSTEM_SHIP_ORBIT_SEGMENTS + 1):
+    true_anomaly = index / KERBIN_SYSTEM_SHIP_ORBIT_SEGMENTS * math.tau
+    orbital_radius = get_orbit_radius_at_true_anomaly(true_anomaly, orbit_shape)
+
+    if orbital_radius < kerbin_radius:
+      points.append(None)
+      continue
+
+    points.append({
+      "radius_ratio": map_world_radius_to_display_ratio(
+        orbital_radius,
+        max_world_radius,
+      ),
+      "angle": true_anomaly + orbit_rotation,
+    })
+
+  return points
+
+
+def build_kerbin_system_visual(system):
+  if not system:
+    return None
+
+  max_world_radius = get_kerbin_system_max_world_radius(system)
+  reference_body = system.get("reference_body") or {}
+  reference_radius = finite_number(reference_body.get("radius"), KERBIN_RADIUS)
+  vessel = system.get("vessel") or {}
+
+  return {
+    "max_world_radius": max_world_radius,
+    "reference_body": {
+      **reference_body,
+      "visual": {
+        "radius_ratio": map_world_radius_to_display_ratio(
+          reference_radius,
+          max_world_radius,
+        ),
+        "atmosphere_radius_ratio": map_world_radius_to_display_ratio(
+          reference_radius + ASCENT_ATMOSPHERE_ALTITUDE,
+          max_world_radius,
+        ),
+      },
+    },
+    "bodies": [
+      build_kerbin_body_visual(body, max_world_radius)
+      for body in system.get("bodies", [])
+    ],
+    "vessel": build_kerbin_body_visual(vessel, max_world_radius),
+    "ship_orbit_points": build_kerbin_ship_orbit_points(system, max_world_radius),
+  }
+
+
+def build_visualizations(snapshot):
+  return {
+    "ascent_cartesian": build_ascent_cartesian_visual(snapshot),
+    "ascent_polar": build_ascent_polar_visual(snapshot),
+    "kerbin_system": build_kerbin_system_visual(snapshot.get("kerbin_system")),
   }
 
 
@@ -911,6 +1243,8 @@ class Telemetry:
       values.update(self.update_slow_data())
     else:
       values.update(self._slow_data)
+
+    values["visualizations"] = build_visualizations(values)
     slow_done_at = time.monotonic()
 
     with self._lock:

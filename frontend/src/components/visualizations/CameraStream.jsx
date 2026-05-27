@@ -7,7 +7,7 @@ import {
   useState,
 } from "react";
 
-const CAMERA_GRID_REFRESH_MS = 700;
+const CAMERA_GRID_REFRESH_MS = 2000;
 const RECORDER_CHUNK_MS = 2000;
 const RECORDER_CAPTURE_FPS = 24;
 const RECORDER_VIDEO_BPS = 3_500_000;
@@ -31,6 +31,10 @@ function CameraStream({ cameras }) {
     }
 
     const intervalId = window.setInterval(() => {
+      if (document.hidden) {
+        return;
+      }
+
       setGridRefreshKey(currentKey => currentKey + 1);
     }, CAMERA_GRID_REFRESH_MS);
 

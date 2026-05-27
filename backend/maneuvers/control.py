@@ -62,11 +62,15 @@ def wait_for_autopilot_alignment(
   warp_while_waiting=False,
   physics_warp_factor=DESCENT_PHYSICS_WARP_FACTOR,
   warp_max_error=None,
+  stable_duration=0.5,
+  min_wait=0.25,
 ):
   started_at = time.monotonic()
+  stable_since = None
 
   try:
     while time.monotonic() - started_at < max_wait:
+      now = time.monotonic()
       guard.check()
       TLM.update(status)
 
@@ -74,7 +78,16 @@ def wait_for_autopilot_alignment(
         autopilot_error = abs(vessel.auto_pilot.error)
 
         if autopilot_error <= AUTOPILOT_ALIGNMENT_ERROR:
-          return True
+          if stable_since is None:
+            stable_since = now
+
+          if (
+            now - started_at >= min_wait
+            and now - stable_since >= stable_duration
+          ):
+            return True
+        else:
+          stable_since = None
       except Exception:
         return False
 

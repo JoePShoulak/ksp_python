@@ -54,7 +54,7 @@ function ActionsPanel({
   missionOptions,
   missionActive,
   pendingActionId,
-  onAbortAction,
+  onReleaseAction,
   onMissionOptionChange,
   onRevertToLaunch,
   onRunAction,
@@ -64,7 +64,7 @@ function ActionsPanel({
   const sequences = actions.filter(action => action.section === "sequence");
   const missionLocked = missionActive || Boolean(activeActionId);
   const vesselLinked = connectionState === "live";
-  const canAbortMission = missionLocked || Boolean(pendingActionId);
+  const canReleaseMission = missionLocked || Boolean(pendingActionId);
   const canRevertMission = vesselLinked || missionLocked || Boolean(pendingActionId);
   const showBackendDebug = false;
 
@@ -143,7 +143,7 @@ function ActionsPanel({
             </p>
           )}
 
-          <div className="mission-abort">
+          <div className="mission-release">
             <button
               className="revert-button"
               type="button"
@@ -152,11 +152,11 @@ function ActionsPanel({
               Revert to Launch
             </button>
             <button
-              className="abort-button"
+              className="release-button"
               type="button"
-              onClick={onAbortAction}
-              disabled={!canAbortMission}>
-              Abort Mission
+              onClick={onReleaseAction}
+              disabled={!canReleaseMission}>
+              Release Mission
             </button>
           </div>
         </div>
