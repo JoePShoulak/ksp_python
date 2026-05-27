@@ -42,7 +42,7 @@ from .constants import (
   PERIAPSIS_CIRCULARIZE_MEDIUM_THROTTLE,
   RAILS_WARP_FACTOR,
 )
-from .control import coast_to_ut, maintain_coast_warp, read_autopilot_error, warp_to_ut
+from .control import coast_to_ut, maintain_coast_warp, read_autopilot_error
 from .vessel import stage_has_engine
 
 
@@ -245,22 +245,13 @@ def wait_for_mun_phase(conn, vessel, mun, plan, guard):
     else:
       coast_seconds = min(2, max(0.25, seconds_until_target / 2))
 
-    if seconds_until_target is not None and seconds_until_target > 20:
-      warp_to_ut(
-        conn,
-        "Waiting for Mun transfer window",
-        TLM.read("ut") + coast_seconds,
-        warp_factor=RAILS_WARP_FACTOR,
-        guard=guard,
-      )
-    else:
-      coast_to_ut(
-        conn,
-        "Waiting for Mun transfer window",
-        TLM.read("ut") + coast_seconds,
-        warp_factor=RAILS_WARP_FACTOR,
-        guard=guard,
-      )
+    coast_to_ut(
+      conn,
+      "Waiting for Mun transfer window",
+      TLM.read("ut") + coast_seconds,
+      warp_factor=RAILS_WARP_FACTOR,
+      guard=guard,
+    )
 
 
 def wait_for_transfer_alignment(conn, vessel, guard, alignment_reader=None):

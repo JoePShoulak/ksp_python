@@ -14,6 +14,7 @@ rm -f /etc/nginx/sites-enabled/default
 cat >/etc/sudoers.d/ksp-control-panel-deploy <<EOF
 $DEPLOY_USER ALL=(root) NOPASSWD: /usr/local/sbin/ksp-control-panel-install-system-config, /bin/systemctl start ksp-backend, /bin/systemctl stop ksp-backend, /bin/systemctl restart ksp-backend, /bin/systemctl reload nginx, /usr/bin/systemctl start ksp-backend, /usr/bin/systemctl stop ksp-backend, /usr/bin/systemctl restart ksp-backend, /usr/bin/systemctl reload nginx, /usr/sbin/nginx -t, /bin/journalctl -u ksp-backend -n 120 -f, /usr/bin/journalctl -u ksp-backend -n 120 -f
 $DEPLOY_OPERATOR ALL=(root) NOPASSWD: /usr/local/sbin/ksp-control-panel-apply-deploy /tmp/ksp-control-panel.tar.gz
+$DEPLOY_OPERATOR ALL=(root) NOPASSWD: /bin/systemctl start ksp-backend, /bin/systemctl stop ksp-backend, /bin/systemctl restart ksp-backend, /bin/systemctl reload nginx, /usr/bin/systemctl start ksp-backend, /usr/bin/systemctl stop ksp-backend, /usr/bin/systemctl restart ksp-backend, /usr/bin/systemctl reload nginx, /usr/sbin/nginx -t
 EOF
 visudo -cf /etc/sudoers.d/ksp-control-panel-deploy
 chmod 0440 /etc/sudoers.d/ksp-control-panel-deploy

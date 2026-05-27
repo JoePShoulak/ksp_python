@@ -1,7 +1,10 @@
 # LAN Production Deployment
 
-This app is designed to run on the Ubuntu server at `192.168.20.105` and connect
-to KSP/kRPC on the game machine at `192.168.20.104`.
+This app deploys to the Ubuntu server at `192.168.20.105` and connects to
+KSP/kRPC on the game machine at `192.168.20.104`.
+
+Do not use the older git push-to-deploy flow for production updates. Production
+updates now use a package-copy-extract-apply flow.
 
 ## Production Shape
 
@@ -14,46 +17,69 @@ Browser
   -> kRPC at 192.168.20.104:50000/50001
 ```
 
-The backend intentionally runs the same Flask entrypoint in production that we
-use during development: `python main.py`. Mission state and kRPC ownership live
+The backend intentionally runs the same Flask entrypoint in production that it
+uses during development: `python main.py`. Mission state and kRPC ownership live
 in process memory, and KSP exposes one active vessel control lane, so production
-should preserve the same single-brain behavior as local development.
+preserves the same single-brain behavior as local development.
 
-## Local Development
+## Production Paths
 
-Local development still runs normally on the main machine. The backend reads
-`backend/.env`, and the project default kRPC target is the LAN KSP machine:
+| Path | Purpose |
+| --- | --- |
+| `/opt/ksp-control-panel/app` | Application files from the deploy package |
+| `/opt/ksp-control-panel/venv` | Backend Python virtual environment |
+| `/etc/ksp-control-panel.env` | Production environment file |
+| `/etc/systemd/system/ksp-backend.service` | Backend systemd unit |
+| `/etc/nginx/sites-available/ksp-control-panel` | Nginx site config |
+
+## Deploy
+
+From Git Bash on the dev machine:
 
 ```bash
-KRPC_ADDRESS=192.168.20.104
-KRPC_RPC_PORT=50000
-KRPC_STREAM_PORT=50001
+cd C:/Users/joeps/coding/ksp_python
+source deploy/aliases.sh
 ```
 
-Run the backend and frontend locally however you normally do. Vite continues to
-proxy `/api` to `127.0.0.1:5000` for local development; only the backend's kRPC
-connection points across the LAN to KSP.
-
-## First Server Setup
-
-Copy or clone this repository onto the Ubuntu server, then run:
+Then use the same verbs as the other Flask/React apps:
 
 ```bash
-cd /path/to/ksp_python
+deploy
+up
+down
+restart
+```
+
+For first-time setup or system repair, use `bootstrap`.
+
+What happens:
+
+1. `deploy/package-for-ubuntu.sh` creates `deploy/dist/ksp-control-panel.tar.gz`.
+2. The archive is copied to HP4.
+3. HP4 runs `/usr/local/sbin/ksp-control-panel-apply-deploy`.
+4. The packaged `deploy/apply-deploy.sh` copies it into `/opt/ksp-control-panel/app`.
+5. `deploy/ubuntu/deploy.sh` installs dependencies, builds the frontend, applies system config, restarts `ksp-backend`, tests Nginx, and reloads Nginx.
+
+## First-Time Bootstrap
+
+Run this on HP4 only when setting up the machine or repairing system-level
+dependencies:
+
+```bash
 sudo bash deploy/ubuntu/bootstrap.sh
 ```
 
-The bootstrap creates:
+Bootstrap installs OS dependencies, creates the `ksp` deploy user, installs the
+system-config helper, creates the environment file if needed, and installs the
+narrow sudoers rules needed by the package deploy flow.
 
-- app directory: `/opt/ksp-control-panel/app`
-- Python venv: `/opt/ksp-control-panel/venv`
-- bare deployment repo: `/srv/git/ksp-control-panel.git`
-- deploy user: `ksp`
-- backend service: `ksp-backend`
-- production env file: `/etc/ksp-control-panel.env`
-- Nginx site on port `5173`
+By default, bootstrap grants passwordless package application to SSH user `leo`.
+Override that one-time with `DEPLOY_OPERATOR=someuser` if the HP4 SSH alias uses
+a different account.
 
-After bootstrap, check or edit:
+## Production Config
+
+Check or edit:
 
 ```bash
 sudo nano /etc/ksp-control-panel.env
@@ -75,125 +101,22 @@ KSP_CAMERA_STREAM_KIND=iframe
 KSP_CAMERA_PUBLIC_PATH_PREFIX=/jrti
 ```
 
-## SSH Deploy User
+## Scripts
 
-The push-to-deploy remote expects SSH access as the `ksp` user. Add your public
-key on the server:
-
-```bash
-sudo install -d -m 700 -o ksp -g ksp /home/ksp/.ssh
-echo "YOUR_PUBLIC_KEY_HERE" | sudo tee -a /home/ksp/.ssh/authorized_keys
-sudo chown ksp:ksp /home/ksp/.ssh/authorized_keys
-sudo chmod 600 /home/ksp/.ssh/authorized_keys
-```
-
-## Push-To-Deploy
-
-From your development machine:
-
-```bash
-git remote add prod ssh://ksp@192.168.20.105/srv/git/ksp-control-panel.git
-git push prod main
-```
-
-The server-side hook checks out `main`, installs backend dependencies, builds
-the frontend, restarts the backend service, and reloads Nginx.
-
-## Daily Prod Commands
-
-From Git Bash in the project root on your development machine:
-
-```bash
-bash scripts/prod status    # health summary plus backend service status
-bash scripts/prod health    # short API health summary only
-bash scripts/prod mission   # mission event trail without server logs
-bash scripts/prod bench     # kRPC timing benchmark while no mission is active
-bash scripts/prod logs      # follow backend logs
-bash scripts/prod restart   # restart backend
-bash scripts/prod down      # stop backend
-bash scripts/prod up        # start backend and reload Nginx
-bash scripts/prod repair-sudo # refresh prod sudo permissions
-bash scripts/prod redeploy  # re-run deployment even if Git says up-to-date
-bash scripts/prod deploy    # push current commit to production main
-```
-
-If `up`, `down`, or `logs` says the `ksp` user is not allowed to run sudo,
-deploy once and refresh the server permissions:
-
-```bash
-bash scripts/prod deploy
-bash scripts/prod repair-sudo
-```
-
-Optional local alias:
-
-```bash
-bash scripts/install-prod-alias
-source ~/.bashrc
-```
-
-That installs:
-
-```bash
-alias kprod='bash /c/Users/joeps/coding/ksp_python/scripts/prod'
-kprod status
-kprod deploy
-```
-
-## Manual Deploy
-
-If you already have the latest code on the server:
-
-```bash
-cd /opt/ksp-control-panel/app
-bash deploy/ubuntu/deploy.sh
-```
-
-If an existing server was bootstrapped before `/jrti/` proxy support was added,
-install the current system templates once:
-
-```bash
-sudo install -m 0755 /opt/ksp-control-panel/app/deploy/ubuntu/install-system-config.sh /usr/local/sbin/ksp-control-panel-install-system-config
-sudo /usr/local/sbin/ksp-control-panel-install-system-config
-```
-
-After that, normal `git push prod main` deploys will apply Nginx/systemd template
-changes automatically.
-
-The `/jrti/` proxy also exposes JRTI's root-relative viewer dependencies such as
-`/camera/...`, `/js/...`, `/css/...`, and `/images/...`. JRTI's viewer HTML uses
-absolute paths internally, so these routes must be proxied too.
-
-The proxied JRTI `js/config.js` is lightly patched by dev/prod proxy config so
-multicam snapshots refresh every `500ms` instead of JRTI's default `10000ms`.
-The embedded JRTI dashboard browser title is renamed to `Camera Feeds`, and its
-visible header/settings chrome is hidden inside our panel while preserving the
-controls inside each camera card.
+| Script | Runs on | Purpose |
+| --- | --- | --- |
+| `deploy/package-for-ubuntu.sh` | Dev machine | Creates the tar package |
+| `deploy/source-deploy.sh` | Dev machine | Packages and copies the archive to HP4 |
+| `deploy/manage.sh` | Dev machine | Uniform `deploy`, `up`, `down`, `restart` wrapper |
+| `deploy/apply-deploy.sh` | HP4 | Extracted-package apply step |
+| `deploy/ubuntu/deploy.sh` | HP4 | Actual app build/restart step |
+| `deploy/ubuntu/bootstrap.sh` | HP4 | First-time system setup |
 
 ## Health Checks
 
-Backend:
-
 ```bash
-curl http://127.0.0.1:5000/api/status
-```
-
-Frontend from another LAN machine:
-
-```text
-http://192.168.20.105:5173
-```
-
-Logs:
-
-```bash
-sudo journalctl -u ksp-backend -f
-sudo tail -f /var/log/nginx/error.log
-```
-
-Restart services:
-
-```bash
-sudo systemctl restart ksp-backend
-sudo systemctl reload nginx
+curl http://192.168.20.105:5000/api/health
+curl -I http://192.168.20.105:5173
+ssh hp4 'sudo systemctl status ksp-backend --no-pager'
+ssh hp4 'sudo nginx -t'
 ```

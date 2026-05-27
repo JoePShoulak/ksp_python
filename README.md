@@ -24,23 +24,26 @@ Default production paths:
 From Git Bash on the dev machine:
 
 ```bash
-cd C:/Users/joeps/coding/ksp_python && bash deploy/package-for-ubuntu.sh && scp deploy/dist/ksp-control-panel.tar.gz hp4:/tmp/ksp-control-panel.tar.gz && ssh -t hp4 'rm -rf ~/ksp-control-panel-deploy && mkdir -p ~/ksp-control-panel-deploy && tar -xzf /tmp/ksp-control-panel.tar.gz -C ~/ksp-control-panel-deploy && cd ~/ksp-control-panel-deploy && bash deploy/apply-deploy.sh /tmp/ksp-control-panel.tar.gz'
+cd C:/Users/joeps/coding/ksp_python
+source deploy/aliases.sh
 ```
 
-After the first bootstrap has installed
-`/usr/local/sbin/ksp-control-panel-apply-deploy` and
-`/etc/sudoers.d/ksp-control-panel-deploy`, normal deploys can run without a sudo
-password prompt:
+Then use the same verbs as the other Flask/React apps:
 
 ```bash
-cd C:/Users/joeps/coding/ksp_python && bash deploy/package-for-ubuntu.sh && scp deploy/dist/ksp-control-panel.tar.gz hp4:/tmp/ksp-control-panel.tar.gz && ssh hp4 'sudo -n /usr/local/sbin/ksp-control-panel-apply-deploy /tmp/ksp-control-panel.tar.gz'
+deploy
+up
+down
+restart
 ```
+
+For first-time setup or system repair, use `bootstrap`.
 
 What happens:
 
 1. `deploy/package-for-ubuntu.sh` creates `deploy/dist/ksp-control-panel.tar.gz`.
 2. The archive is copied to HP4.
-3. HP4 extracts it into `~/ksp-control-panel-deploy`.
+3. HP4 runs `/usr/local/sbin/ksp-control-panel-apply-deploy`.
 4. The packaged `deploy/apply-deploy.sh` copies it into `/opt/ksp-control-panel/app`.
 5. `deploy/ubuntu/deploy.sh` installs backend/frontend dependencies, builds the frontend, applies system config, restarts `ksp-backend`, tests Nginx, and reloads Nginx.
 
@@ -67,6 +70,7 @@ a different account.
 | --- | --- | --- |
 | `deploy/package-for-ubuntu.sh` | Dev machine | Creates the tar package |
 | `deploy/source-deploy.sh` | Dev machine | Packages and copies the archive to HP4 |
+| `deploy/manage.sh` | Dev machine | Uniform `deploy`, `up`, `down`, `restart` wrapper |
 | `deploy/apply-deploy.sh` | HP4 | Extracted-package apply step |
 | `deploy/ubuntu/deploy.sh` | HP4 | Actual app build/restart step |
 | `deploy/ubuntu/bootstrap.sh` | HP4 | First-time system setup |
