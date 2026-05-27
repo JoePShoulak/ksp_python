@@ -30,6 +30,7 @@ from mission_state import (
 )
 from maneuvers.constants import LKO_TOURISM_MAX_LAUNCH_ATTEMPTS
 from maneuvers.launch import (
+  circularize_at_apoapsis,
   circularize_at_periapsis,
   flyby_mun,
   land_rocket,
@@ -658,6 +659,15 @@ def circularize_at_periapsis_route():
     "circularize_at_periapsis",
     circularize_at_periapsis,
     "Circularize at periapsis started",
+  )
+
+
+@app.route("/api/actions/circularize_at_apoapsis", methods=["POST"])
+def circularize_at_apoapsis_route():
+  return run_action(
+    "circularize_at_apoapsis",
+    circularize_at_apoapsis,
+    "Circularize at apoapsis started",
   )
 
 

@@ -20,6 +20,11 @@ export const ACTIONS = [
     section: "step",
   },
   {
+    id: "circularize_at_apoapsis",
+    label: "Circularize at Apoapsis",
+    section: "step",
+  },
+  {
     id: "circularize_at_periapsis",
     label: "Circularize at Periapsis",
     section: "step",

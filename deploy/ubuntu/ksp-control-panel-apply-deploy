@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ARCHIVE=${1:-/tmp/ksp-control-panel.tar.gz}
+WORKDIR=${2:-/tmp/ksp-control-panel-apply}
+
+if [[ "$ARCHIVE" != "/tmp/ksp-control-panel.tar.gz" ]]; then
+  echo "Refusing unexpected archive path: $ARCHIVE" >&2
+  exit 64
+fi
+
+rm -rf "$WORKDIR"
+mkdir -p "$WORKDIR"
+tar -xzf "$ARCHIVE" -C "$WORKDIR"
+cd "$WORKDIR"
+bash deploy/apply-deploy.sh "$ARCHIVE"
