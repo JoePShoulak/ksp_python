@@ -45,6 +45,21 @@
   .numerical-telemetry-row strong {
     text-align: left;
   }
+
+  .resource-list {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.45rem;
+  }
+
+  .resource-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.35rem;
+  }
+
+  .resource-value {
+    text-align: left;
+  }
 }
 
 @media (max-width: 959px), (max-aspect-ratio: 6 / 5) {
@@ -112,16 +127,11 @@
     white-space: nowrap;
   }
 
-  .resource-row {
+  .resource-list {
     grid-template-columns:
-      minmax(6.5rem, 8.5rem)
-      minmax(6rem, 1fr)
-      minmax(6rem, max-content);
-    gap: 0.55rem;
-  }
-
-  .resource-value {
-    text-align: right;
+      max-content
+      minmax(9rem, 10.25rem)
+      minmax(6rem, 1fr);
   }
 
   .visualization-grid {
@@ -141,7 +151,7 @@
   }
 
   .subpanel-camera {
-    grid-column: span 8;
+    grid-column: 1 / -1;
   }
 
   .visualization-subpanel canvas {
@@ -179,7 +189,7 @@
   }
 
   .subpanel-camera {
-    grid-column: span 8;
+    grid-column: 1 / -1;
   }
 
   .numerical-telemetry {
@@ -326,7 +336,7 @@
   }
 
   .subpanel-camera {
-    grid-column: span 8;
+    grid-column: 1 / -1;
   }
 
   .subpanel-camera .camera-viewport {

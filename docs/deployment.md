@@ -1,6 +1,6 @@
 # LAN Production Deployment
 
-This app deploys to the Ubuntu server at `192.168.20.105` and connects to
+This app deploys to the Ubuntu server at `192.168.20.102` and connects to
 KSP/kRPC on the game machine at `192.168.20.104`.
 
 Do not use the older git push-to-deploy flow for production updates. Production
@@ -10,7 +10,7 @@ updates now use a package-copy-extract-apply flow.
 
 ```text
 Browser
-  -> http://192.168.20.105:5173
+  -> http://192.168.20.102:5173
   -> Nginx static frontend
   -> /api proxied to 127.0.0.1:5000
   -> Flask backend
@@ -115,8 +115,8 @@ KSP_CAMERA_PUBLIC_PATH_PREFIX=/jrti
 ## Health Checks
 
 ```bash
-curl http://192.168.20.105:5000/api/health
-curl -I http://192.168.20.105:5173
+curl http://192.168.20.102:5000/api/health
+curl -I http://192.168.20.102:5173
 ssh hp4 'sudo systemctl status ksp-backend --no-pager'
 ssh hp4 'sudo nginx -t'
 ```

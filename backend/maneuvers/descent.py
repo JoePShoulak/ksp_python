@@ -20,6 +20,9 @@ from .constants import (
   LANDING_DEORBIT_DRIFT_ERROR,
   LANDING_DEORBIT_PERIAPSIS,
   LANDING_DEORBIT_THROTTLE,
+  LANDING_SPEED_DUMP_ALIGNMENT_TIMEOUT,
+  LANDING_SPEED_DUMP_MIN_APOAPSIS,
+  LANDING_SPEED_DUMP_START_ALTITUDE,
   PARACHUTE_DEPLOY_ALTITUDE,
   RAILS_WARP_FACTOR,
 )
@@ -56,14 +59,88 @@ def burn_remaining_fuel_for_descent(conn, vessel, guard):
   if not has_usable_thrust(vessel):
     return
 
-  TLM.update("Burning remaining fuel")
-  vessel.auto_pilot.target_direction = (0, -1, 0)
+  while (
+    TLM.read("altitude") > LANDING_SPEED_DUMP_START_ALTITUDE
+    and TLM.read("vertical_speed") < 0
+  ):
+    guard.check()
+    maintain_physics_warp(conn)
+    TLM.update("Waiting for speed dump")
+    time.sleep(0.1)
+
+  stop_warp(conn)
+  TLM.update("Aiming for speed dump")
+  aim_landing_retrograde(vessel)
+  record_mission_event(
+    "land_speed_dump_alignment_start",
+    "Land",
+    altitude=TLM.read("altitude"),
+    apoapsis=TLM.read("apoapsis"),
+    periapsis=TLM.read("periapsis"),
+    autopilot_error=read_autopilot_error(vessel),
+  )
+
+  if not wait_for_autopilot_alignment(
+    vessel,
+    guard,
+    "Aiming for speed dump",
+    max_wait=LANDING_SPEED_DUMP_ALIGNMENT_TIMEOUT,
+    conn=conn,
+    warp_while_waiting=True,
+    stable_duration=0.25,
+  ):
+    record_mission_event(
+      "land_speed_dump_alignment_failed",
+      "Land",
+      altitude=TLM.read("altitude"),
+      apoapsis=TLM.read("apoapsis"),
+      periapsis=TLM.read("periapsis"),
+      autopilot_error=read_autopilot_error(vessel),
+    )
+    raise MissionAborted("Land stopped because speed dump alignment did not settle")
+
+  record_mission_event(
+    "land_speed_dump_burn_start",
+    "Land",
+    altitude=TLM.read("altitude"),
+    apoapsis=TLM.read("apoapsis"),
+    periapsis=TLM.read("periapsis"),
+    minimum_apoapsis=LANDING_SPEED_DUMP_MIN_APOAPSIS,
+    autopilot_error=read_autopilot_error(vessel),
+  )
+
   vessel.control.throttle = 1.0
 
-  while has_usable_thrust(vessel):
+  while (
+    has_usable_thrust(vessel)
+    and TLM.read("apoapsis") > LANDING_SPEED_DUMP_MIN_APOAPSIS
+  ):
     guard.check()
     maintain_physics_warp(conn)
     TLM.update("Burning remaining fuel")
+
+    autopilot_error = read_autopilot_error(vessel)
+    if autopilot_error is not None and abs(autopilot_error) > AUTOPILOT_ALIGNMENT_ERROR:
+      vessel.control.throttle = 0
+      record_mission_event(
+        "land_speed_dump_alignment_lost",
+        "Land",
+        altitude=TLM.read("altitude"),
+        apoapsis=TLM.read("apoapsis"),
+        periapsis=TLM.read("periapsis"),
+        autopilot_error=autopilot_error,
+      )
+      aim_landing_retrograde(vessel)
+      if not wait_for_autopilot_alignment(
+        vessel,
+        guard,
+        "Reacquiring speed dump alignment",
+        max_wait=10,
+        conn=conn,
+        warp_while_waiting=True,
+        stable_duration=0.25,
+      ):
+        raise MissionAborted("Land stopped because speed dump alignment was lost")
 
     if vessel.control.throttle < 1.0:
       vessel.control.throttle = 1.0
@@ -72,6 +149,15 @@ def burn_remaining_fuel_for_descent(conn, vessel, guard):
 
   guard.check(force=True)
   vessel.control.throttle = 0.0
+  record_mission_event(
+    "land_speed_dump_burn_done",
+    "Land",
+    altitude=TLM.read("altitude"),
+    apoapsis=TLM.read("apoapsis"),
+    periapsis=TLM.read("periapsis"),
+    minimum_apoapsis=LANDING_SPEED_DUMP_MIN_APOAPSIS,
+    usable_thrust_remaining=has_usable_thrust(vessel),
+  )
 
 def warp_physics_through_atmosphere(conn, vessel, guard, parachutes_deployed):
   TLM.update("Aerobraking")

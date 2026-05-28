@@ -4,9 +4,10 @@ $repo = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 $python = "C:\Users\joeps\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe"
 $port = 5000
 $runtimeDir = Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) ".runtime"
+$freshPythonDeps = Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) ".codex_deps_fresh"
 $runtimePythonDeps = Join-Path $runtimeDir "python-deps"
 $repoPythonDeps = Join-Path $repo ".python-deps"
-$pythonDeps = if (Test-Path $runtimePythonDeps) { $runtimePythonDeps } else { $repoPythonDeps }
+$pythonDeps = if (Test-Path $freshPythonDeps) { $freshPythonDeps } elseif (Test-Path $runtimePythonDeps) { $runtimePythonDeps } else { $repoPythonDeps }
 
 New-Item -ItemType Directory -Force -Path $runtimeDir | Out-Null
 

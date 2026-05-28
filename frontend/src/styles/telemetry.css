@@ -113,14 +113,17 @@
 
 .resource-list {
   display: grid;
-  gap: 0.45rem;
+  grid-template-columns:
+    max-content
+    minmax(9rem, 10.25rem)
+    minmax(6rem, 1fr);
+  column-gap: 0.55rem;
+  row-gap: 0.45rem;
+  align-items: center;
 }
 
 .resource-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 0.35rem;
-  align-items: center;
+  display: contents;
 }
 
 .resource-label {
@@ -175,7 +178,7 @@
   font-size: 0.75rem;
   font-weight: 700;
   overflow: hidden;
-  text-align: left;
+  text-align: right;
   text-overflow: ellipsis;
   white-space: nowrap;
 }

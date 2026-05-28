@@ -73,6 +73,15 @@
   gap: 0.8rem;
 }
 
+.mission-connection-row {
+  display: flex;
+  min-width: 0;
+}
+
+.mission-connection-row .connection-pill {
+  max-width: 100%;
+}
+
 .actions-column {
   display: grid;
   gap: 0.85rem;

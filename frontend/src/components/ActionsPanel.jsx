@@ -26,7 +26,7 @@ function ActionButton({
   );
 }
 
-function MissionPanelTitle({ connectionState }) {
+function MissionConnectionStatus({ connectionState }) {
   const connectionLabel = {
     live: "Vessel linked",
     idle: "Waiting for vessel",
@@ -35,13 +35,12 @@ function MissionPanelTitle({ connectionState }) {
   }[connectionState] ?? "Connecting";
 
   return (
-    <span className="panel-title-row">
-      <span>Missions</span>
+    <div className="mission-connection-row">
       <span className={`connection-pill ${connectionState}`} aria-live="polite">
         <span className="connection-dot" />
         {connectionLabel}
       </span>
-    </span>
+    </div>
   );
 }
 
@@ -71,10 +70,12 @@ function ActionsPanel({
   return (
     <div className="actions-column">
       <Panel
-        title={<MissionPanelTitle connectionState={connectionState} />}
+        title="Missions"
         popout={allowPopout}
         popoutName="Missions">
         <div className="actions-panel">
+          <MissionConnectionStatus connectionState={connectionState} />
+
           <div className="action-group">
             {missionSteps.map(action => (
               <ActionButton

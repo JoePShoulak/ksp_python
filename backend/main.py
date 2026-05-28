@@ -80,12 +80,14 @@ def get_cached_vessel_state():
 
 
 def build_telemetry_response(snapshot, vessel_check):
+  mission_reset_sequence = get_active_mission_status().get("visual_reset_sequence") or 0
+
   return jsonify({
     "ok": True,
     "has_vessel": bool(snapshot),
     "telemetry": snapshot if snapshot else None,
     "vessel_check": vessel_check,
-    "visual_reset_sequence": get_active_mission_status().get("visual_reset_sequence"),
+    "visual_reset_sequence": mission_reset_sequence + TLM.get_visual_reset_sequence(),
     "telemetry_error": LAST_TELEMETRY_ERROR,
     **get_cached_vessel_state(),
   })
@@ -432,6 +434,9 @@ def version():
 @app.route("/api/mission", methods=["GET"])
 def mission_status():
   mission = get_active_mission_status()
+  mission["visual_reset_sequence"] = (
+    (mission.get("visual_reset_sequence") or 0) + TLM.get_visual_reset_sequence()
+  )
 
   with ACTION_LOCK:
     action = ACTIVE_ACTION

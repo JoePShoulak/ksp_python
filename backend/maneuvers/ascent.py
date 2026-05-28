@@ -28,7 +28,6 @@ from .control import read_autopilot_error, reset_manual_controls
 from .descent import configure_suborbital_landing, warp_through_aerobraking
 from .vessel import (
   parachutes_have_deployed,
-  should_stage_spent_solid_boosters,
   stage_has_engine,
   vessel_is_down,
 )
@@ -117,6 +116,19 @@ def wait_for_launch_guidance_ready(vessel, guard):
   )
   return False
 
+def lower_atmosphere_ascent_pitch(altitude, vertical_speed):
+  if vertical_speed < 15:
+    return 80
+  if altitude < 10000:
+    return 70
+  if altitude < 20000:
+    return 60
+  if altitude < 35000:
+    return 45
+  if altitude < 50000:
+    return 30
+  return 20
+
 def launch(conn, vessel, guard):
   guard.check(force=True)
   TLM.update("Pre-flight check")
@@ -191,12 +203,19 @@ def gravity_turn_to_orbit(conn, vessel, guard):
       "launch_pitch_over_descending_before_space",
     )
 
-  vessel.auto_pilot.reference_frame = vessel.surface_velocity_reference_frame
-  vessel.auto_pilot.target_direction = (0, 1, 0)
+  vessel.auto_pilot.reference_frame = vessel.surface_reference_frame
+  vessel.auto_pilot.target_pitch_and_heading(LAUNCH_PITCH_OVER_ANGLE, 90)
   vessel.auto_pilot.target_roll = 0
 
   peak_stage_thrust = max(0, safe_value(lambda: vessel.available_thrust, 0))
   last_stage = vessel.control.current_stage
+  record_mission_event(
+    "launch_optional_srb_separation_disabled",
+    "Launch",
+    module=__file__,
+    stage=last_stage,
+    available_thrust=peak_stage_thrust,
+  )
 
   while TLM.read("apoapsis") < LAUNCH_TARGET_APOAPSIS:
     TLM.update("Staging to space")
@@ -207,6 +226,10 @@ def gravity_turn_to_orbit(conn, vessel, guard):
     )
     altitude = TLM.read("altitude")
     vertical_speed = TLM.read("vertical_speed")
+    target_pitch = lower_atmosphere_ascent_pitch(altitude, vertical_speed)
+    vessel.auto_pilot.reference_frame = vessel.surface_reference_frame
+    vessel.auto_pilot.target_pitch_and_heading(target_pitch, 90)
+    vessel.auto_pilot.target_roll = 0
 
     if vessel_is_down(vessel) or (altitude < 100 and vertical_speed < -1):
       vessel.control.throttle = 0
@@ -227,30 +250,26 @@ def gravity_turn_to_orbit(conn, vessel, guard):
     else:
       peak_stage_thrust = max(peak_stage_thrust, available_thrust)
 
-    mixed_booster_thrust_drop = (
-      peak_stage_thrust > 0
-      and available_thrust > 0.1
-      and available_thrust < peak_stage_thrust * 0.55
-      and stage_has_engine(vessel, current_stage)
-    )
-
-    if (
-      should_stage_spent_solid_boosters(vessel, current_stage)
-      or mixed_booster_thrust_drop
-    ):
-      record_mission_event(
-        "launch_spent_srb_stage_separated",
-        "Launch",
-        stage=current_stage,
-        available_thrust=available_thrust,
-        peak_stage_thrust=peak_stage_thrust,
-        altitude=altitude,
-        apoapsis=TLM.read("apoapsis"),
-      )
+    if available_thrust < 0.1 and stage_has_engine(vessel, next_stage):
       vessel.control.activate_next_stage()
       peak_stage_thrust = 0
       last_stage = safe_value(lambda: vessel.control.current_stage, current_stage)
-    elif available_thrust < 0.1 and stage_has_engine(vessel, next_stage):
+    elif (
+      altitude > 8000 and
+      altitude < 30000 and
+      vertical_speed < 25 and
+      TLM.read("apoapsis") < 35000 and
+      stage_has_engine(vessel, next_stage)
+    ):
+      record_mission_event(
+        "launch_low_climb_stage_assist",
+        "Launch",
+        altitude=altitude,
+        vertical_speed=vertical_speed,
+        apoapsis=TLM.read("apoapsis"),
+        stage=current_stage,
+        available_thrust=available_thrust,
+      )
       vessel.control.activate_next_stage()
       peak_stage_thrust = 0
       last_stage = safe_value(lambda: vessel.control.current_stage, current_stage)
@@ -342,5 +361,5 @@ def launch_to_orbit(revert_on_orbit_failure=False):
       raise MissionAborted(mission_aborted_message("Launch")) from error
     raise
   finally:
+    safe_value(lambda: setattr(vessel.control, "rcs", False))
     close_mission_connection(conn)
-

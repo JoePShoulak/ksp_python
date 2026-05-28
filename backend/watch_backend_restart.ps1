@@ -8,8 +8,11 @@ $ErrorActionPreference = "Stop"
 
 $backendDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repo = Split-Path -Parent $backendDir
-$pythonDeps = Join-Path $repo ".python-deps"
 $runtimeDir = Join-Path $backendDir ".runtime"
+$freshPythonDeps = Join-Path $backendDir ".codex_deps_fresh"
+$runtimePythonDeps = Join-Path $runtimeDir "python-deps"
+$repoPythonDeps = Join-Path $repo ".python-deps"
+$pythonDeps = if (Test-Path $freshPythonDeps) { $freshPythonDeps } elseif (Test-Path $runtimePythonDeps) { $runtimePythonDeps } else { $repoPythonDeps }
 $restartRequest = Join-Path $runtimeDir ".restart-request"
 $stopRequest = Join-Path $runtimeDir ".stop-request"
 $pidFile = Join-Path $runtimeDir "backend.pid"

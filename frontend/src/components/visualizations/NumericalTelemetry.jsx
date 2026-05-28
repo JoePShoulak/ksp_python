@@ -1,10 +1,13 @@
 import {
   EMPTY_VALUE,
+  formatDegrees,
+  formatGForce,
   formatMeters,
   formatMetersPerSecond,
   formatNewtons,
   formatNumber,
   formatPercent,
+  formatRadiansAsDegrees,
   formatSeconds,
 } from "../../utils/formatters";
 
@@ -50,6 +53,22 @@ function NumericalTelemetry({ telemetry }) {
           label="Vertical Speed"
           value={formatMetersPerSecond(telemetry.vertical_speed)}
         />
+        <TelemetryRow
+          label="Latitude"
+          value={formatDegrees(telemetry.latitude)}
+        />
+        <TelemetryRow
+          label="Heading"
+          value={formatDegrees(telemetry.heading)}
+        />
+        <TelemetryRow
+          label="Pitch"
+          value={formatDegrees(telemetry.pitch)}
+        />
+        <TelemetryRow
+          label="G Force"
+          value={formatGForce(telemetry.g_force)}
+        />
       </TelemetryGroup>
 
       <TelemetryGroup title="Orbit">
@@ -68,6 +87,22 @@ function NumericalTelemetry({ telemetry }) {
         <TelemetryRow
           label="Time to Periapsis"
           value={formatSeconds(telemetry.time_to_periapsis)}
+        />
+        <TelemetryRow
+          label="Inclination"
+          value={formatRadiansAsDegrees(telemetry.inclination)}
+        />
+        <TelemetryRow
+          label="Eccentricity"
+          value={formatNumber(telemetry.eccentricity, 3)}
+        />
+        <TelemetryRow
+          label="Period"
+          value={formatSeconds(telemetry.orbital_period)}
+        />
+        <TelemetryRow
+          label="Semi-major Axis"
+          value={formatMeters(telemetry.semi_major_axis)}
         />
       </TelemetryGroup>
 
@@ -99,7 +134,7 @@ function NumericalTelemetry({ telemetry }) {
         />
         <TelemetryRow
           label="Longitude"
-          value={`${formatNumber(telemetry.longitude, 3)} deg`}
+          value={formatDegrees(telemetry.longitude)}
         />
       </TelemetryGroup>
     </div>

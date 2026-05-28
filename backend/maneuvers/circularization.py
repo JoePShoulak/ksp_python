@@ -114,6 +114,9 @@ def aim_orbital_prograde(vessel):
   vessel.auto_pilot.target_direction = (0, 1, 0)
   vessel.auto_pilot.target_roll = 0
 
+def set_rcs(vessel, enabled):
+  safe_value(lambda: setattr(vessel.control, "rcs", enabled))
+
 def abs_autopilot_error(vessel):
   error = read_autopilot_error(vessel)
 
@@ -200,12 +203,12 @@ def wait_for_circularization_alignment(conn, vessel, guard, max_wait):
   started_at = time.monotonic()
   started_time_to_apoapsis = TLM.read("time_to_apoapsis")
   next_progress_at = CIRCULARIZATION_ALIGNMENT_PROGRESS_INTERVAL
-  warp_limited = False
-  assist_recorded = False
 
   try:
     while time.monotonic() - started_at < max_wait:
       guard.check()
+      stop_warp(conn)
+      vessel.control.throttle = 0
       TLM.update("Aiming prograde")
       error = read_alignment_error(vessel)
 
@@ -239,32 +242,6 @@ def wait_for_circularization_alignment(conn, vessel, guard, max_wait):
           vessel,
         )
         return "fallback"
-
-      assist_active = set_alignment_assist_throttle(vessel, error)
-
-      if assist_active and not assist_recorded:
-        assist_recorded = True
-        record_alignment_progress(
-          "circularization_alignment_assist_throttle",
-          started_time_to_apoapsis,
-          vessel,
-        )
-
-      if error > CIRCULARIZATION_ALIGNMENT_WARP_MAX_ERROR:
-        if not warp_limited:
-          record_alignment_progress(
-            "circularization_alignment_warp_paused",
-            started_time_to_apoapsis,
-            vessel,
-          )
-          warp_limited = True
-        stop_warp(conn)
-      else:
-        maintain_coast_warp(
-          conn,
-          physics_warp_factor=ASCENT_PHYSICS_WARP_FACTOR,
-          allow_rails=False,
-        )
 
       time.sleep(0.1)
 
@@ -459,6 +436,7 @@ def circularize(conn, vessel, guard, recover_suborbital_failure=True):
     return False
 
   reached_space = update_reached_space(False)
+  set_rcs(vessel, False)
 
   guard.check(force=True)
   TLM.update("Aiming prograde")
@@ -494,18 +472,38 @@ def circularize(conn, vessel, guard, recover_suborbital_failure=True):
   )
 
   if TLM.read("ut") < circularization_alignment_ut:
-    coast_to_ut(
+    manual_physics_warp_until(
       conn,
-      "Rails warping to alignment",
-      circularization_alignment_ut,
-      warp_factor=RAILS_WARP_FACTOR,
+      "Physics warping to circularization alignment",
+      lambda: TLM.read("ut") >= circularization_alignment_ut,
+      warp_factor=ASCENT_PHYSICS_WARP_FACTOR,
+      abort_condition=lambda: circularization_failed(vessel, reached_space),
       guard=guard,
     )
 
   time.sleep(0.5)
   guard.check(force=True)
+  if TLM.read("time_to_apoapsis") > CIRCULARIZATION_ALIGNMENT_BUFFER + circularization_lead_time + 30:
+    vessel.control.throttle = 0
+    record_mission_event(
+      "circularization_missed_apoapsis_window",
+      "Launch",
+      time_to_apoapsis=TLM.read("time_to_apoapsis"),
+      expected_max_time_to_apoapsis=CIRCULARIZATION_ALIGNMENT_BUFFER + circularization_lead_time + 30,
+      apoapsis=TLM.read("apoapsis"),
+      periapsis=TLM.read("periapsis"),
+    )
+    return False
+
   stop_warp(conn)
   vessel.control.throttle = 0
+  set_rcs(vessel, True)
+  record_mission_event(
+    "circularization_rcs_enabled",
+    "Launch",
+    altitude=TLM.read("altitude"),
+    rcs=safe_value(lambda: vessel.control.rcs),
+  )
   TLM.update("Aiming prograde")
   aim_orbital_prograde(vessel)
   record_mission_event(
@@ -521,22 +519,43 @@ def circularize(conn, vessel, guard, recover_suborbital_failure=True):
     conn,
     vessel,
     guard,
-    max_wait=45,
+    max_wait=min(
+      45,
+      max(5, TLM.read("time_to_apoapsis") - circularization_lead_time),
+    ),
   )
 
   if alignment_result == "failed":
-    vessel.control.throttle = 0
+    alignment_error = read_alignment_error(vessel)
     record_mission_event(
       "circularization_alignment_failed",
       "Launch",
-      alignment_error=read_alignment_error(vessel),
+      alignment_error=alignment_error,
       autopilot_error=read_autopilot_error(vessel),
       prograde_error=read_prograde_error(vessel),
       time_to_apoapsis=TLM.read("time_to_apoapsis"),
       apoapsis=TLM.read("apoapsis"),
       periapsis=TLM.read("periapsis"),
     )
-    return False
+
+    if (
+      TLM.read("time_to_apoapsis") <= CIRCULARIZATION_ALIGNMENT_BUFFER + circularization_lead_time
+      and alignment_error is not None
+      and alignment_error <= CIRCULARIZATION_FALLBACK_BURN_MAX_ERROR
+    ):
+      alignment_result = "fallback"
+      record_mission_event(
+        "circularization_alignment_deadline_fallback",
+        "Launch",
+        alignment_error=alignment_error,
+        autopilot_error=read_autopilot_error(vessel),
+        prograde_error=read_prograde_error(vessel),
+        time_to_apoapsis=TLM.read("time_to_apoapsis"),
+      )
+    else:
+      vessel.control.throttle = 0
+      set_rcs(vessel, False)
+      return False
 
   record_mission_event(
     "circularization_alignment_done",
@@ -547,6 +566,7 @@ def circularize(conn, vessel, guard, recover_suborbital_failure=True):
     prograde_error=read_prograde_error(vessel),
     time_to_apoapsis=TLM.read("time_to_apoapsis"),
   )
+  set_rcs(vessel, False)
 
   fallback_alignment_accepted = alignment_result == "fallback"
 
@@ -558,6 +578,7 @@ def circularize(conn, vessel, guard, recover_suborbital_failure=True):
 
       if circularization_failed(vessel, reached_space):
         vessel.control.throttle = 0
+        set_rcs(vessel, False)
         record_ascent_failure("circularization_wait_descending_before_atmosphere", vessel)
         return False
 
@@ -569,6 +590,7 @@ def circularize(conn, vessel, guard, recover_suborbital_failure=True):
         and error > CIRCULARIZATION_FALLBACK_ALIGNMENT_ERROR
       ):
         stop_warp(conn)
+        set_rcs(vessel, True)
         alignment_result = wait_for_circularization_alignment(
           conn,
           vessel,
@@ -583,10 +605,12 @@ def circularize(conn, vessel, guard, recover_suborbital_failure=True):
           alignment_result == "fallback"
         ):
           fallback_alignment_accepted = True
+          set_rcs(vessel, False)
         elif (
           alignment_result == "failed"
           and TLM.read("time_to_apoapsis") <= circularization_lead_time
         ):
+          set_rcs(vessel, False)
           return False
       else:
         maintain_coast_warp(
@@ -610,6 +634,7 @@ def circularize(conn, vessel, guard, recover_suborbital_failure=True):
 
     if circularization_failed(vessel, reached_space):
       vessel.control.throttle = 0
+      set_rcs(vessel, False)
       record_ascent_failure("circularization_burn_descending_before_atmosphere", vessel)
       return False
 
@@ -645,14 +670,17 @@ def circularize(conn, vessel, guard, recover_suborbital_failure=True):
         periapsis=TLM.read("periapsis"),
       )
 
+      set_rcs(vessel, True)
       if wait_for_circularization_alignment(
         conn,
         vessel,
         guard,
         max_wait=10,
       ) == "failed":
+        set_rcs(vessel, False)
         return False
 
+      set_rcs(vessel, False)
       vessel.control.throttle = 0
 
     time_remaining = max(0, circularization_end_ut - TLM.read("ut"))
@@ -771,6 +799,7 @@ def circularize(conn, vessel, guard, recover_suborbital_failure=True):
         if recover_suborbital_failure:
           configure_suborbital_landing(conn, vessel, guard)
 
+        set_rcs(vessel, False)
         return False
 
     time.sleep(CIRCULARIZATION_BURN_INTERVAL)
@@ -787,5 +816,11 @@ def circularize(conn, vessel, guard, recover_suborbital_failure=True):
     actual_ut=TLM.read("ut"),
   )
 
+  set_rcs(vessel, False)
+  record_mission_event(
+    "circularization_rcs_disabled",
+    "Launch",
+    rcs=safe_value(lambda: vessel.control.rcs),
+  )
   return TLM.read("periapsis") >= CIRCULARIZATION_TOURISM_PERIAPSIS
 

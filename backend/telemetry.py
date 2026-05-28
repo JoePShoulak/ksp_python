@@ -850,6 +850,7 @@ def get_vessel_snapshot(conn, vessel, status="nominal", delta_v_profiles=None):
   body = safe_value(lambda: orbit.body)
   reference_frame = safe_value(lambda: body.reference_frame)
   flight = safe_value(lambda: vessel.flight(reference_frame))
+  surface_flight = safe_value(lambda: vessel.flight(vessel.surface_reference_frame), flight)
   situation = safe_value(lambda: vessel.situation)
   surface_altitude = safe_value(lambda: flight.surface_altitude)
 
@@ -866,11 +867,19 @@ def get_vessel_snapshot(conn, vessel, status="nominal", delta_v_profiles=None):
     "surface_altitude": normalize_surface_altitude(surface_altitude, situation),
     "vertical_speed": safe_value(lambda: flight.vertical_speed),
     "speed": safe_value(lambda: flight.speed),
+    "latitude": safe_value(lambda: flight.latitude),
     "longitude": safe_value(lambda: flight.longitude),
+    "heading": safe_value(lambda: surface_flight.heading),
+    "pitch": safe_value(lambda: surface_flight.pitch),
+    "g_force": safe_value(lambda: flight.g_force),
     "ut": safe_value(lambda: conn.space_center.ut),
     "met": safe_value(lambda: vessel.met),
     "time_to_apoapsis": safe_value(lambda: orbit.time_to_apoapsis),
     "time_to_periapsis": safe_value(lambda: orbit.time_to_periapsis),
+    "inclination": safe_value(lambda: orbit.inclination),
+    "eccentricity": safe_value(lambda: orbit.eccentricity),
+    "orbital_period": safe_value(lambda: orbit.period),
+    "semi_major_axis": safe_value(lambda: orbit.semi_major_axis),
     "liquid_fuel": safe_value(lambda: vessel.resources.amount("LiquidFuel")),
     "stage": safe_value(lambda: vessel.control.current_stage),
     "throttle": safe_value(lambda: vessel.control.throttle),
@@ -915,6 +924,7 @@ class Telemetry:
     self._timing = {}
     self._updated_at = 0
     self._active_vessel_miss_count = 0
+    self._visual_reset_sequence = 0
     self._initialized = False
 
   def begin(self, conn, vessel):
@@ -924,16 +934,26 @@ class Telemetry:
 
     with self._lock:
       prior_conn = self._conn
+      prior_vessel_name = self._vessel_name
 
     flight = vessel.flight(vessel.orbit.body.reference_frame)
+    surface_flight = vessel.flight(vessel.surface_reference_frame)
 
     altitude = conn.add_stream(getattr, flight, "mean_altitude")
     surface_altitude = conn.add_stream(getattr, flight, "surface_altitude")
     vertical_speed = conn.add_stream(getattr, flight, "vertical_speed")
     speed = conn.add_stream(getattr, flight, "speed")
+    latitude = conn.add_stream(getattr, flight, "latitude")
+    heading = conn.add_stream(getattr, surface_flight, "heading")
+    pitch = conn.add_stream(getattr, surface_flight, "pitch")
+    g_force = conn.add_stream(getattr, flight, "g_force")
     time_to_apoapsis = conn.add_stream(getattr, vessel.orbit, "time_to_apoapsis")
     apoapsis = conn.add_stream(getattr, vessel.orbit, "apoapsis_altitude")
     periapsis = conn.add_stream(getattr, vessel.orbit, "periapsis_altitude")
+    inclination = conn.add_stream(getattr, vessel.orbit, "inclination")
+    eccentricity = conn.add_stream(getattr, vessel.orbit, "eccentricity")
+    orbital_period = conn.add_stream(getattr, vessel.orbit, "period")
+    semi_major_axis = conn.add_stream(getattr, vessel.orbit, "semi_major_axis")
     ut = conn.add_stream(getattr, conn.space_center, "ut")
     met = conn.add_stream(getattr, vessel, "met")
     time_to_periapsis = conn.add_stream(getattr, vessel.orbit, "time_to_periapsis")
@@ -966,11 +986,19 @@ class Telemetry:
       "surface_altitude": surface_altitude,
       "vertical_speed": vertical_speed,
       "speed": speed,
+      "latitude": latitude,
       "longitude": longitude,
+      "heading": heading,
+      "pitch": pitch,
+      "g_force": g_force,
       "ut": ut,
       "met": met,
       "time_to_apoapsis": time_to_apoapsis,
       "time_to_periapsis": time_to_periapsis,
+      "inclination": inclination,
+      "eccentricity": eccentricity,
+      "orbital_period": orbital_period,
+      "semi_major_axis": semi_major_axis,
       "liquid_fuel": liquid_fuel,
       "stage": lambda: vessel.control.current_stage,
       "throttle": lambda: vessel.control.throttle,
@@ -983,6 +1011,8 @@ class Telemetry:
       self._conn = conn
       self._vessel = vessel
       self._vessel_name = safe_value(lambda: vessel.name)
+      if prior_vessel_name and prior_vessel_name != self._vessel_name:
+        self._visual_reset_sequence += 1
       self._initialized = True
 
     if prior_conn is not None and prior_conn is not conn:
@@ -1013,6 +1043,7 @@ class Telemetry:
       self._timing = {}
       self._updated_at = 0
       self._active_vessel_miss_count = 0
+      self._visual_reset_sequence += 1
       self._initialized = False
 
     close_connection(conn, stop_warp_first=False)
@@ -1287,6 +1318,10 @@ class Telemetry:
   def get_timing(self):
     with self._lock:
       return dict(self._timing)
+
+  def get_visual_reset_sequence(self):
+    with self._lock:
+      return self._visual_reset_sequence
 
 
 TLM = Telemetry()

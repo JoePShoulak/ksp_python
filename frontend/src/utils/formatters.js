@@ -28,6 +28,24 @@ export function formatMetersPerSecond(value, digits = 1) {
   return `${formatNumber(value, digits)} m/s`;
 }
 
+export function formatDegrees(value, digits = 3) {
+  return `${formatNumber(value, digits)} deg`;
+}
+
+export function formatRadiansAsDegrees(value, digits = 2) {
+  const number = Number(value);
+
+  if (!Number.isFinite(number)) {
+    return EMPTY_VALUE;
+  }
+
+  return formatDegrees((number * 180) / Math.PI, digits);
+}
+
+export function formatGForce(value, digits = 2) {
+  return `${formatNumber(value, digits)} g`;
+}
+
 export function formatNewtons(value, digits = 1) {
   const number = Number(value);
 

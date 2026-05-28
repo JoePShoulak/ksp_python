@@ -44,7 +44,7 @@ export function useKspPolling() {
   const [activeActionId, setActiveActionId] = useState(null);
   const [missionActive, setMissionActive] = useState(false);
   const [actionError, setActionError] = useState(null);
-  const [visualResetKey, setVisualResetKey] = useState(0);
+  const [visualResetKey, setVisualResetKey] = useState("0:0");
   const [backendHealth, setBackendHealth] = useState(INITIAL_BACKEND_HEALTH);
   const [pendingActionId, setPendingActionId] = useState(null);
 
@@ -56,6 +56,8 @@ export function useKspPolling() {
   const lastMissionStatusPollRef = useRef(0);
   const lastBackendHealthPollRef = useRef(0);
   const visualResetSequenceRef = useRef(null);
+  const signalConnectedRef = useRef(null);
+  const signalResetSequenceRef = useRef(0);
   const isPollingRef = useRef(false);
   const healthFailureCountRef = useRef(0);
   const lastApiSuccessAtRef = useRef(0);
@@ -66,17 +68,49 @@ export function useKspPolling() {
     healthFailureCountRef.current = 0;
   }, []);
 
+  const publishVisualResetKey = useCallback(() => {
+    setVisualResetKey(
+      `${visualResetSequenceRef.current ?? 0}:${signalResetSequenceRef.current}`,
+    );
+  }, []);
+
   const syncVisualResetSequence = useCallback(resetSequence => {
     if (
       Number.isFinite(resetSequence) &&
-      visualResetSequenceRef.current !== resetSequence
+      (
+        visualResetSequenceRef.current === null ||
+        resetSequence > visualResetSequenceRef.current
+      )
     ) {
       visualResetSequenceRef.current = resetSequence;
-      setVisualResetKey(resetSequence);
+      publishVisualResetKey();
+      return true;
     }
-  }, []);
+
+    return false;
+  }, [publishVisualResetKey]);
+
+  const syncSignalResetSequence = useCallback(nextTelemetry => {
+    const hasSignal = nextTelemetry?.comms?.display_has_signal;
+
+    if (typeof hasSignal !== "boolean") {
+      return false;
+    }
+
+    const previousHasSignal = signalConnectedRef.current;
+    signalConnectedRef.current = hasSignal;
+
+    if (previousHasSignal !== null && previousHasSignal !== hasSignal) {
+      signalResetSequenceRef.current += 1;
+      publishVisualResetKey();
+      return true;
+    }
+
+    return false;
+  }, [publishVisualResetKey]);
 
   const clearVesselState = useCallback(() => {
+    signalConnectedRef.current = null;
     setTelemetry(null);
     setHasVessel(false);
     setConnectionState("idle");
@@ -90,11 +124,14 @@ export function useKspPolling() {
     try {
       const data = await getTelemetry(options);
       const hasActiveVessel = Boolean(data.has_vessel);
+      const visualResetChanged = syncVisualResetSequence(
+        data.visual_reset_sequence,
+      );
 
       markApiSuccess();
-      syncVisualResetSequence(data.visual_reset_sequence);
 
       if (hasActiveVessel) {
+        syncSignalResetSequence(data.telemetry);
         vesselReconnectFailureCountRef.current = 0;
         setTelemetry(data.telemetry ?? null);
         setHasVessel(true);
@@ -105,6 +142,7 @@ export function useKspPolling() {
       vesselReconnectFailureCountRef.current += 1;
 
       if (
+        visualResetChanged ||
         !hasVesselRef.current ||
         vesselReconnectFailureCountRef.current >= VESSEL_RECONNECT_FAILURE_LIMIT
       ) {
@@ -115,7 +153,13 @@ export function useKspPolling() {
         return;
       }
     }
-  }, [clearVesselState, hasVesselRef, markApiSuccess, syncVisualResetSequence]);
+  }, [
+    clearVesselState,
+    hasVesselRef,
+    markApiSuccess,
+    syncSignalResetSequence,
+    syncVisualResetSequence,
+  ]);
 
   const pollBackendHealth = useCallback(async () => {
     try {
