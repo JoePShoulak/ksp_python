@@ -3,7 +3,9 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
-REMOTE="${KSP_REMOTE:-hp4}"
+REMOTE="${KSP_REMOTE:-hp1}"
+SSH_CONFIG="$ROOT_DIR/deploy/dist/ksp-ssh-config"
+SSH_OPTS=(-F "$SSH_CONFIG")
 ARCHIVE_LOCAL="$ROOT_DIR/deploy/dist/ksp-control-panel.tar.gz"
 ARCHIVE_REMOTE="${KSP_ARCHIVE:-/tmp/ksp-control-panel.tar.gz}"
 BOOTSTRAP_DIR="${KSP_BOOTSTRAP_DIR:-~/ksp-control-panel-deploy}"
@@ -25,35 +27,57 @@ Commands:
 EOF
 }
 
+ensure_ssh_config() {
+  mkdir -p "$(dirname "$SSH_CONFIG")"
+  cat > "$SSH_CONFIG" <<EOF
+Host hp1
+  HostName 192.168.20.21
+  User leo
+  StrictHostKeyChecking accept-new
+
+Host hp4
+  HostName 192.168.20.24
+  User leo
+  StrictHostKeyChecking accept-new
+
+Host *
+  StrictHostKeyChecking accept-new
+EOF
+}
+
 package_app() {
   (cd "$ROOT_DIR" && bash deploy/package-for-ubuntu.sh)
 }
 
 send_app() {
   package_app
-  scp "$ARCHIVE_LOCAL" "$REMOTE:$ARCHIVE_REMOTE"
+  ensure_ssh_config
+  scp "${SSH_OPTS[@]}" "$ARCHIVE_LOCAL" "$REMOTE:$ARCHIVE_REMOTE"
 }
 
 deploy_app() {
   send_app
-  ssh "$REMOTE" "sudo -n $APPLY $ARCHIVE_REMOTE"
+  ssh "${SSH_OPTS[@]}" "$REMOTE" "sudo -n $APPLY $ARCHIVE_REMOTE"
 }
 
 bootstrap_app() {
   send_app
-  ssh -t "$REMOTE" "rm -rf $BOOTSTRAP_DIR && mkdir -p $BOOTSTRAP_DIR && tar -xzf $ARCHIVE_REMOTE -C $BOOTSTRAP_DIR && cd $BOOTSTRAP_DIR && sudo bash deploy/ubuntu/bootstrap.sh && bash deploy/apply-deploy.sh $ARCHIVE_REMOTE"
+  ssh "${SSH_OPTS[@]}" -t "$REMOTE" "rm -rf $BOOTSTRAP_DIR && mkdir -p $BOOTSTRAP_DIR && tar -xzf $ARCHIVE_REMOTE -C $BOOTSTRAP_DIR && cd $BOOTSTRAP_DIR && sudo bash deploy/ubuntu/bootstrap.sh && bash deploy/apply-deploy.sh $ARCHIVE_REMOTE"
 }
 
 up_app() {
-  ssh "$REMOTE" "sudo -n systemctl start $SERVICE && sudo -n nginx -t && sudo -n systemctl reload nginx"
+  ensure_ssh_config
+  ssh "${SSH_OPTS[@]}" "$REMOTE" "sudo -n systemctl start $SERVICE && sudo -n nginx -t && sudo -n systemctl reload nginx"
 }
 
 down_app() {
-  ssh "$REMOTE" "sudo -n systemctl stop $SERVICE"
+  ensure_ssh_config
+  ssh "${SSH_OPTS[@]}" "$REMOTE" "sudo -n systemctl stop $SERVICE"
 }
 
 restart_app() {
-  ssh "$REMOTE" "sudo -n systemctl restart $SERVICE && sudo -n nginx -t && sudo -n systemctl reload nginx"
+  ensure_ssh_config
+  ssh "${SSH_OPTS[@]}" "$REMOTE" "sudo -n systemctl restart $SERVICE && sudo -n nginx -t && sudo -n systemctl reload nginx"
 }
 
 case "${1:-}" in
@@ -87,3 +111,4 @@ case "${1:-}" in
     exit 64
     ;;
 esac
+

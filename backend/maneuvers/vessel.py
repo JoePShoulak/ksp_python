@@ -81,10 +81,10 @@ def spent_solid_boosters_for_stage(vessel, stage_number):
     and engine_decouple_stage(engine) == stage_number
   ]
 
-def should_stage_spent_solid_boosters(vessel, stage_number):
+def should_stage_spent_solid_boosters(vessel, current_stage, decouple_stage):
   return (
-    has_active_liquid_thrust(vessel, stage_number)
-    and len(spent_solid_boosters_for_stage(vessel, stage_number)) > 0
+    has_active_liquid_thrust(vessel, current_stage)
+    and len(spent_solid_boosters_for_stage(vessel, decouple_stage)) > 0
   )
 
 def estimate_full_throttle_burn_time(vessel):

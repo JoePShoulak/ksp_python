@@ -22,7 +22,7 @@ conflicting vessel commands.
   rollback after revert, stale kRPC connections, and explicit abort requests.
 - Records the last action flight log under backend runtime storage and exposes
   it through the API.
-- Deploys to the HP4 Ubuntu host with a tar package, systemd backend service,
+- Deploys to the HP1 Ubuntu host with a tar package, systemd backend service,
   and Nginx frontend/API proxy.
 
 ## System Shape
@@ -45,7 +45,7 @@ Production currently uses:
 
 ```text
 Browser
-  -> http://192.168.20.102:5173
+  -> http://192.168.20.21:5173
   -> Nginx static frontend
   -> /api proxied to 127.0.0.1:5000
   -> Flask backend
@@ -334,7 +334,7 @@ curl "http://127.0.0.1:5000/api/logs/last-flight?limit=100"
 
 | Machine | Address | Role |
 | --- | --- | --- |
-| HP4 | `192.168.20.102` | KSP application host |
+| HP1 | `192.168.20.21` | KSP application host |
 | KSP machine | `192.168.20.104` | KSP, kRPC, optional JRTI camera stream |
 
 Default production paths:
@@ -378,8 +378,8 @@ What `deploy` does:
 
 1. `deploy/package-for-ubuntu.sh` creates
    `deploy/dist/ksp-control-panel.tar.gz`.
-2. The archive is copied to HP4.
-3. HP4 runs `/usr/local/sbin/ksp-control-panel-apply-deploy`.
+2. The archive is copied to HP1.
+3. HP1 runs `/usr/local/sbin/ksp-control-panel-apply-deploy`.
 4. The packaged `deploy/apply-deploy.sh` copies it into
    `/opt/ksp-control-panel/app`.
 5. `deploy/ubuntu/deploy.sh` installs backend/frontend dependencies, builds the
@@ -388,7 +388,7 @@ What `deploy` does:
 
 ## First-Time Bootstrap
 
-Run this on HP4 only when setting up the machine or repairing system-level
+Run this on HP1 only when setting up the machine or repairing system-level
 dependencies:
 
 ```bash
@@ -400,7 +400,7 @@ system-config helper, creates the environment file if needed, and installs the
 narrow sudoers rules needed by the tar-based deploy script.
 
 By default, bootstrap grants passwordless package application to SSH user `leo`.
-Override that one-time with `DEPLOY_OPERATOR=someuser` if the HP4 SSH alias uses
+Override that one-time with `DEPLOY_OPERATOR=someuser` if the HP1 SSH alias uses
 a different account.
 
 ## Deployment Scripts
@@ -408,26 +408,26 @@ a different account.
 | Script | Runs on | Purpose |
 | --- | --- | --- |
 | `deploy/package-for-ubuntu.sh` | Dev machine | Creates the tar package |
-| `deploy/source-deploy.sh` | Dev machine | Packages and copies the archive to HP4 |
+| `deploy/source-deploy.sh` | Dev machine | Packages and copies the archive to HP1 |
 | `deploy/manage.sh` | Dev machine | Uniform `deploy`, `up`, `down`, `restart` wrapper |
-| `deploy/apply-deploy.sh` | HP4 | Extracted-package apply step |
-| `deploy/ubuntu/deploy.sh` | HP4 | App build/restart step |
-| `deploy/ubuntu/bootstrap.sh` | HP4 | First-time system setup |
-| `deploy/ubuntu/install-system-config.sh` | HP4 | Installs/updates systemd and Nginx config |
+| `deploy/apply-deploy.sh` | HP1 | Extracted-package apply step |
+| `deploy/ubuntu/deploy.sh` | HP1 | App build/restart step |
+| `deploy/ubuntu/bootstrap.sh` | HP1 | First-time system setup |
+| `deploy/ubuntu/install-system-config.sh` | HP1 | Installs/updates systemd and Nginx config |
 
 ## Post-Deploy Checks
 
 ```bash
-curl http://192.168.20.102:5000/api/health
-curl -I http://192.168.20.102:5173
-ssh hp4 'sudo systemctl status ksp-backend --no-pager'
-ssh hp4 'sudo nginx -t'
+curl http://192.168.20.21:5000/api/health
+curl -I http://192.168.20.21:5173
+ssh hp1 'sudo systemctl status ksp-backend --no-pager'
+ssh hp1 'sudo nginx -t'
 ```
 
 Also check the dashboard in a browser:
 
 ```text
-http://192.168.20.102:5173
+http://192.168.20.21:5173
 ```
 
 ## Troubleshooting
@@ -464,8 +464,8 @@ Camera feed missing:
 
 Production deploy fails:
 
-- Run `ssh hp4 'sudo nginx -t'`.
-- Run `ssh hp4 'sudo systemctl status ksp-backend --no-pager'`.
+- Run `ssh hp1 'sudo nginx -t'`.
+- Run `ssh hp1 'sudo systemctl status ksp-backend --no-pager'`.
 - Verify `/etc/ksp-control-panel.env`.
 - Re-run `bootstrap` only for first-time setup or system-level repair.
 
@@ -475,3 +475,5 @@ This project can issue real control commands to the active KSP vessel. Keep the
 dashboard and kRPC server on a trusted LAN, avoid running multiple control
 clients against the same active vessel, and use release/revert deliberately when
 an automation no longer matches the flight state.
+
+

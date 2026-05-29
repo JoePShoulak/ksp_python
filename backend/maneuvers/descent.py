@@ -19,6 +19,8 @@ from .constants import (
   LANDING_DEORBIT_BURN_LEAD_TIME,
   LANDING_DEORBIT_DRIFT_ERROR,
   LANDING_DEORBIT_PERIAPSIS,
+  LANDING_DEORBIT_PROGRESS_MIN_DROP,
+  LANDING_DEORBIT_PROGRESS_TIMEOUT,
   LANDING_DEORBIT_THROTTLE,
   LANDING_SPEED_DUMP_ALIGNMENT_TIMEOUT,
   LANDING_SPEED_DUMP_MIN_APOAPSIS,
@@ -403,11 +405,47 @@ def land_rocket():
       time_to_apoapsis=TLM.read("time_to_apoapsis"),
       apoapsis=TLM.read("apoapsis"),
       periapsis=TLM.read("periapsis"),
+      throttle=LANDING_DEORBIT_THROTTLE,
     )
+    burn_started_at = time.monotonic()
+    last_progress_at = burn_started_at
+    best_periapsis = TLM.read("periapsis")
+    last_progress_report = burn_started_at
 
     while TLM.read("periapsis") > LANDING_DEORBIT_PERIAPSIS:
       guard.check()
       TLM.update("Lowering periapsis")
+      current_periapsis = TLM.read("periapsis")
+
+      if current_periapsis < best_periapsis - LANDING_DEORBIT_PROGRESS_MIN_DROP:
+        best_periapsis = current_periapsis
+        last_progress_at = time.monotonic()
+
+      if time.monotonic() - last_progress_report >= 5:
+        record_mission_event(
+          "land_deorbit_burn_progress",
+          "Land",
+          apoapsis=TLM.read("apoapsis"),
+          periapsis=current_periapsis,
+          best_periapsis=best_periapsis,
+          target_periapsis=LANDING_DEORBIT_PERIAPSIS,
+          throttle=vessel.control.throttle,
+          elapsed_seconds=time.monotonic() - burn_started_at,
+        )
+        last_progress_report = time.monotonic()
+
+      if time.monotonic() - last_progress_at > LANDING_DEORBIT_PROGRESS_TIMEOUT:
+        vessel.control.throttle = 0
+        record_mission_event(
+          "land_deorbit_burn_no_progress",
+          "Land",
+          apoapsis=TLM.read("apoapsis"),
+          periapsis=current_periapsis,
+          best_periapsis=best_periapsis,
+          throttle=LANDING_DEORBIT_THROTTLE,
+          elapsed_seconds=time.monotonic() - burn_started_at,
+        )
+        raise MissionAborted("Land stopped because deorbit burn did not lower periapsis")
 
       autopilot_error = read_autopilot_error(vessel)
       if autopilot_error is not None and abs(autopilot_error) > AUTOPILOT_ALIGNMENT_ERROR:
@@ -438,6 +476,9 @@ def land_rocket():
           break
 
         raise MissionAborted("Land stopped because deorbit burn ran out of fuel")
+
+      if vessel.control.throttle < LANDING_DEORBIT_THROTTLE:
+        vessel.control.throttle = LANDING_DEORBIT_THROTTLE
 
       time.sleep(0.1)
 

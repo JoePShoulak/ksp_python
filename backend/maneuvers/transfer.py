@@ -42,13 +42,27 @@ from .constants import (
   MUN_FLYBY_MEDIUM_THROTTLE,
   MUN_FLYBY_MIN_SAFE_PERIAPSIS,
   MUN_FLYBY_PHASE_TOLERANCE,
+  MUN_FLYBY_SOI_IMPACT_ESCAPE_MARGIN,
+  MUN_FLYBY_SOI_IMPACT_ESCAPE_MAX_SECONDS,
+  MUN_FLYBY_SOI_IMPACT_ESCAPE_THROTTLE,
+  MUN_FLYBY_SOI_CAPTURE_GUARD_APOAPSIS,
+  MUN_FLYBY_SOI_PERIAPSIS_COARSE_TRIM_THROTTLE,
+  MUN_FLYBY_SOI_PERIAPSIS_MEDIUM_TRIM_THROTTLE,
+  MUN_FLYBY_SOI_PERIAPSIS_PROBE_THROTTLE,
   MUN_FLYBY_SOI_PERIAPSIS_PROBE_SECONDS,
+  MUN_FLYBY_SOI_PERIAPSIS_POINTING_SECONDS,
   MUN_FLYBY_SOI_PERIAPSIS_TOLERANCE,
   MUN_FLYBY_SOI_PERIAPSIS_TRIM_MAX_SECONDS,
   MUN_FLYBY_SOI_PERIAPSIS_TRIM_THROTTLE,
+  MUN_FLYBY_SOI_RETURN_DEADLINE_SECONDS,
+  MUN_FLYBY_SOI_SOFT_CAPTURE_GUARD_APOAPSIS,
   MUN_FLYBY_SOI_TARGET_PERIAPSIS,
   MUN_FLYBY_TARGET_PERIAPSIS_TOLERANCE,
   MUN_FLYBY_TARGET_PERIAPSIS,
+  MUN_FLYBY_TARGETING_APOAPSIS_MARGIN,
+  MUN_FLYBY_TARGETING_FINE_THROTTLE,
+  MUN_FLYBY_TARGETING_MEDIUM_THROTTLE,
+  MUN_FLYBY_TARGETING_WORSENING_ABORT,
   PERIAPSIS_CIRCULARIZE_ALIGNMENT_BUFFER,
   PERIAPSIS_CIRCULARIZE_APOAPSIS_TOLERANCE,
   PERIAPSIS_CIRCULARIZE_COARSE_THROTTLE,
@@ -61,6 +75,7 @@ from .control import (
   coast_to_ut,
   maintain_coast_warp,
   manual_physics_warp_until,
+  rails_coast_to_ut,
   read_autopilot_error,
 )
 from .vessel import stage_has_engine
@@ -175,9 +190,13 @@ def calculate_mun_transfer_plan(vessel, mun):
     "mun_orbit_radius": mun_orbit_radius,
     "target_apoapsis": mun_orbit_radius - kerbin_radius - MUN_FLYBY_APOAPSIS_MARGIN,
     "cutoff_apoapsis": mun_orbit_radius - kerbin_radius - MUN_FLYBY_APOAPSIS_CUTOFF_MARGIN,
-    "max_apoapsis": mun_orbit_radius - kerbin_radius + MUN_FLYBY_APOAPSIS_CUTOFF_MARGIN,
+    "max_apoapsis": mun_orbit_radius - kerbin_radius + MUN_FLYBY_TARGETING_APOAPSIS_MARGIN,
     "transfer_time": transfer_time,
     "lead_angle": lead_angle,
+    "phase_targets": (
+      lead_angle,
+      normalize_angle_degrees(-lead_angle),
+    ),
     "estimated_delta_v": max(0, transfer_periapsis_speed - circular_speed),
   }
 
@@ -433,7 +452,7 @@ def estimate_phase_rate_degrees_per_second(vessel, target_body):
   if vessel_period <= 0 or target_period <= 0:
     return None
 
-  return 360 / target_period - 360 / vessel_period
+  return 360 / vessel_period - 360 / target_period
 
 
 def seconds_to_phase_target(phase_error, phase_rate):
@@ -456,6 +475,7 @@ def seconds_to_phase_target(phase_error, phase_rate):
 def wait_for_mun_phase(conn, vessel, mun, plan, guard):
   reference_frame = vessel.orbit.body.non_rotating_reference_frame
   vessel_period = safe_value(lambda: float(vessel.orbit.period), 0)
+  phase_targets = tuple(plan.get("phase_targets") or (plan["lead_angle"],))
 
   if vessel_period <= 0:
     raise MissionAborted("Mun flyby stopped because the Kerbin orbit period could not be measured")
@@ -483,7 +503,18 @@ def wait_for_mun_phase(conn, vessel, mun, plan, guard):
     if phase_angle is None:
       raise MissionAborted("Mun flyby stopped because phase angle could not be measured")
 
-    phase_error = normalize_angle_degrees(phase_angle - plan["lead_angle"])
+    phase_errors = [
+      {
+        "target_phase_angle": target_phase_angle,
+        "phase_error": normalize_angle_degrees(phase_angle - target_phase_angle),
+      }
+      for target_phase_angle in phase_targets
+    ]
+    selected_phase = min(
+      phase_errors,
+      key=lambda phase: abs(phase["phase_error"]),
+    )
+    phase_error = selected_phase["phase_error"]
     phase_score = abs(phase_error)
 
     if best_phase is None or phase_score < best_phase["phase_score"]:
@@ -491,6 +522,7 @@ def wait_for_mun_phase(conn, vessel, mun, plan, guard):
         "phase_angle": phase_angle,
         "phase_error": phase_error,
         "phase_score": phase_score,
+        "target_phase_angle": selected_phase["target_phase_angle"],
         "ut": TLM.read("ut"),
       }
 
@@ -501,7 +533,8 @@ def wait_for_mun_phase(conn, vessel, mun, plan, guard):
         "Mun Flyby",
         phase_angle=phase_angle,
         phase_error=phase_error,
-        target_phase_angle=plan["lead_angle"],
+        target_phase_angle=selected_phase["target_phase_angle"],
+        phase_targets=phase_targets,
         wait_seconds=TLM.read("ut") - started_ut,
         max_wait_seconds=deadline_ut - started_ut,
       )
@@ -513,7 +546,8 @@ def wait_for_mun_phase(conn, vessel, mun, plan, guard):
       "Mun Flyby",
       phase_angle=phase_angle,
       phase_error=phase_error,
-      target_phase_angle=plan["lead_angle"],
+      target_phase_angle=selected_phase["target_phase_angle"],
+      phase_targets=phase_targets,
       phase_rate=phase_rate,
       remaining_wait=remaining_wait,
       best_phase_error=(best_phase or {}).get("phase_error"),
@@ -557,6 +591,7 @@ def wait_for_mun_phase(conn, vessel, mun, plan, guard):
     "mun_flyby_phase_missed",
     "Mun Flyby",
     target_phase_angle=plan["lead_angle"],
+    phase_targets=phase_targets,
     tolerance=MUN_FLYBY_PHASE_TOLERANCE,
     wait_seconds=TLM.read("ut") - started_ut,
     max_wait_seconds=deadline_ut - started_ut,
@@ -615,9 +650,34 @@ def set_transfer_throttle(vessel, apoapsis_remaining):
 
 def set_mun_periapsis_trim_throttle(vessel, periapsis_error):
   if periapsis_error > 250000:
-    vessel.control.throttle = MUN_FLYBY_MEDIUM_THROTTLE
+    vessel.control.throttle = MUN_FLYBY_TARGETING_MEDIUM_THROTTLE
   else:
-    vessel.control.throttle = MUN_FLYBY_FINE_THROTTLE
+    vessel.control.throttle = MUN_FLYBY_TARGETING_FINE_THROTTLE
+
+
+def predicted_mun_periapsis(encounter):
+  patch_periapsis = encounter.get("mun_periapsis")
+  if patch_periapsis is not None:
+    return patch_periapsis
+
+  sampled_periapsis = encounter.get("estimated_orbit_mun_periapsis")
+  if sampled_periapsis is not None:
+    return sampled_periapsis
+
+  if encounter.get("geometric_intercept"):
+    return encounter.get("estimated_mun_periapsis")
+
+  return None
+
+
+def predicted_mun_periapsis_source(encounter):
+  if encounter.get("mun_periapsis") is not None:
+    return "orbit_patch"
+  if encounter.get("estimated_orbit_mun_periapsis") is not None:
+    return "sampled_orbit"
+  if encounter.get("geometric_intercept"):
+    return "geometric"
+  return None
 
 
 def aim_orbital_retrograde(vessel):
@@ -922,12 +982,56 @@ def perform_mun_injection_burn(conn, vessel, mun, plan, guard):
   while True:
     guard.check()
     TLM.update("Burning for Mun flyby")
+    apoapsis = TLM.read("apoapsis")
+    eccentricity = TLM.read("eccentricity")
+
+    if apoapsis is not None and apoapsis < 0:
+      vessel.control.throttle = 0
+      record_mission_event(
+        "mun_flyby_escape_guard_abort",
+        "Mun Flyby",
+        apoapsis=apoapsis,
+        eccentricity=eccentricity,
+        best_predicted_mun_periapsis=(best_encounter or {}).get(
+          "predicted_mun_periapsis"
+        ),
+        best_prediction_source=(best_encounter or {}).get("prediction_source"),
+        target_mun_periapsis=plan["target_periapsis"],
+      )
+      raise MissionAborted(
+        "Mun flyby stopped because the transfer burn reached Kerbin escape before the 50 km Mun periapsis target"
+      )
+
+    if apoapsis is not None and apoapsis > plan["max_apoapsis"]:
+      vessel.control.throttle = 0
+      record_mission_event(
+        "mun_flyby_targeting_apoapsis_limit_abort",
+        "Mun Flyby",
+        apoapsis=apoapsis,
+        max_apoapsis=plan["max_apoapsis"],
+        best_predicted_mun_periapsis=(best_encounter or {}).get(
+          "predicted_mun_periapsis"
+        ),
+        best_prediction_source=(best_encounter or {}).get("prediction_source"),
+        target_mun_periapsis=plan["target_periapsis"],
+      )
+      raise MissionAborted(
+        "Mun flyby stopped because the one-burn target did not reach 50 km before the safe apoapsis limit"
+      )
+
     encounter = read_mun_encounter(vessel)
     geometric_intercept = estimate_mun_geometric_intercept(vessel, mun)
     encounter = {
       **encounter,
       **geometric_intercept,
     }
+
+    if TLM.read("apoapsis") >= plan["cutoff_apoapsis"]:
+      orbit_intercept = estimate_mun_orbit_intercept(vessel, mun, plan)
+      encounter = {
+        **encounter,
+        **orbit_intercept,
+      }
 
     alignment_error = read_alignment_error(vessel)
     if alignment_error is not None and alignment_error > 55:
@@ -951,9 +1055,13 @@ def perform_mun_injection_burn(conn, vessel, mun, plan, guard):
       if not wait_for_transfer_alignment(conn, vessel, guard, max_error=55):
         raise MissionAborted("Mun flyby stopped because prograde alignment was lost")
 
-    mun_periapsis = encounter.get("mun_periapsis")
+    mun_periapsis = predicted_mun_periapsis(encounter)
 
-    if mun_periapsis is not None:
+    if mun_periapsis is not None and (
+      encounter.get("next_body") == "Mun"
+      or encounter.get("orbit_intercept")
+      or encounter.get("geometric_intercept")
+    ):
       periapsis_error = mun_periapsis - plan["target_periapsis"]
       encounter_score = abs(periapsis_error)
 
@@ -961,87 +1069,69 @@ def perform_mun_injection_burn(conn, vessel, mun, plan, guard):
         best_encounter = {
           **encounter,
           "score": encounter_score,
+          "predicted_mun_periapsis": mun_periapsis,
+          "prediction_source": predicted_mun_periapsis_source(encounter),
         }
 
       record_mission_event(
-        "mun_flyby_encounter_trim",
+        "mun_flyby_kerbin_side_periapsis_targeting",
         "Mun Flyby",
-        mun_periapsis=mun_periapsis,
+        predicted_mun_periapsis=mun_periapsis,
+        prediction_source=predicted_mun_periapsis_source(encounter),
         periapsis_error=periapsis_error,
         target_mun_periapsis=plan["target_periapsis"],
         time_to_soi_change=encounter.get("time_to_soi_change"),
+        apoapsis=TLM.read("apoapsis"),
+        orbit_intercept=encounter.get("orbit_intercept"),
+        orbit_collision_course=encounter.get("orbit_collision_course"),
       )
 
       if abs(periapsis_error) <= MUN_FLYBY_TARGET_PERIAPSIS_TOLERANCE:
         break
 
+      if (
+        best_encounter is not None
+        and best_encounter.get("predicted_mun_periapsis") is not None
+        and mun_periapsis
+        > best_encounter["predicted_mun_periapsis"]
+        + MUN_FLYBY_TARGETING_WORSENING_ABORT
+      ):
+        vessel.control.throttle = 0
+        record_mission_event(
+          "mun_flyby_kerbin_side_periapsis_worsening_abort",
+          "Mun Flyby",
+          predicted_mun_periapsis=mun_periapsis,
+          prediction_source=predicted_mun_periapsis_source(encounter),
+          best_predicted_mun_periapsis=best_encounter.get(
+            "predicted_mun_periapsis"
+          ),
+          best_prediction_source=best_encounter.get("prediction_source"),
+          target_mun_periapsis=plan["target_periapsis"],
+          apoapsis=TLM.read("apoapsis"),
+        )
+        raise MissionAborted(
+          "Mun flyby stopped because the one-burn Mun periapsis prediction was moving away from 50 km"
+        )
+
       if mun_periapsis < plan["target_periapsis"] - MUN_FLYBY_TARGET_PERIAPSIS_TOLERANCE:
+        vessel.control.throttle = 0
+        record_mission_event(
+          "mun_flyby_kerbin_side_periapsis_overshot",
+          "Mun Flyby",
+          predicted_mun_periapsis=mun_periapsis,
+          prediction_source=predicted_mun_periapsis_source(encounter),
+          target_mun_periapsis=plan["target_periapsis"],
+          minimum_safe_periapsis=MUN_FLYBY_MIN_SAFE_PERIAPSIS,
+          orbit_collision_course=encounter.get("orbit_collision_course"),
+        )
         if mun_periapsis < MUN_FLYBY_MIN_SAFE_PERIAPSIS:
-          vessel.control.throttle = 0
           raise MissionAborted(
-            "Mun flyby stopped because the projected Mun periapsis is too low"
+            "Mun flyby stopped because the one-burn projected Mun periapsis is too low"
           )
         break
 
       set_mun_periapsis_trim_throttle(vessel, periapsis_error)
     else:
-      if (
-        encounter.get("geometric_intercept")
-        and TLM.read("apoapsis") >= plan["cutoff_apoapsis"]
-      ):
-        vessel.control.throttle = 0
-        record_mission_event(
-          "mun_flyby_geometric_intercept_detected",
-          "Mun Flyby",
-          apoapsis=TLM.read("apoapsis"),
-          target_apoapsis=plan["target_apoapsis"],
-          cutoff_apoapsis=plan["cutoff_apoapsis"],
-          max_apoapsis=plan["max_apoapsis"],
-          estimated_mun_miss_distance=encounter.get("estimated_mun_miss_distance"),
-          estimated_mun_periapsis=encounter.get("estimated_mun_periapsis"),
-          estimated_time_to_mun_closest_approach=encounter.get(
-            "estimated_time_to_mun_closest_approach"
-          ),
-          geometric_collision_course=encounter.get("geometric_collision_course"),
-          mun_distance=encounter.get("mun_distance"),
-          mun_closing_speed=encounter.get("mun_closing_speed"),
-          mun_sphere_of_influence=encounter.get("mun_sphere_of_influence"),
-        )
-        break
-
-      if TLM.read("apoapsis") >= plan["cutoff_apoapsis"]:
-        orbit_intercept = estimate_mun_orbit_intercept(vessel, mun, plan)
-        encounter = {
-          **encounter,
-          **orbit_intercept,
-        }
-
-        if encounter.get("orbit_intercept"):
-          vessel.control.throttle = 0
-          record_mission_event(
-            "mun_flyby_orbit_intercept_detected",
-            "Mun Flyby",
-            apoapsis=TLM.read("apoapsis"),
-            target_apoapsis=plan["target_apoapsis"],
-            cutoff_apoapsis=plan["cutoff_apoapsis"],
-            max_apoapsis=plan["max_apoapsis"],
-            estimated_orbit_mun_miss_distance=encounter.get(
-              "estimated_orbit_mun_miss_distance"
-            ),
-            estimated_orbit_mun_periapsis=encounter.get(
-              "estimated_orbit_mun_periapsis"
-            ),
-            estimated_orbit_time_to_mun_closest_approach=encounter.get(
-              "estimated_orbit_time_to_mun_closest_approach"
-            ),
-            estimated_orbit_mun_closest_ut=encounter.get(
-              "estimated_orbit_mun_closest_ut"
-            ),
-            orbit_collision_course=encounter.get("orbit_collision_course"),
-            mun_sphere_of_influence=encounter.get("mun_sphere_of_influence"),
-          )
-          break
-
       if TLM.read("apoapsis") >= plan["max_apoapsis"]:
         vessel.control.throttle = 0
         raise MissionAborted(
@@ -1081,7 +1171,13 @@ def perform_mun_injection_burn(conn, vessel, mun, plan, guard):
     target_mun_periapsis=plan["target_periapsis"],
     next_body=encounter.get("next_body"),
     mun_periapsis=encounter.get("mun_periapsis"),
+    predicted_mun_periapsis=predicted_mun_periapsis(encounter),
+    prediction_source=predicted_mun_periapsis_source(encounter),
     best_mun_periapsis=(best_encounter or {}).get("mun_periapsis"),
+    best_predicted_mun_periapsis=(best_encounter or {}).get(
+      "predicted_mun_periapsis"
+    ),
+    best_prediction_source=(best_encounter or {}).get("prediction_source"),
     time_to_soi_change=encounter.get("time_to_soi_change"),
     geometric_intercept=encounter.get("geometric_intercept"),
     geometric_collision_course=encounter.get("geometric_collision_course"),
@@ -1111,20 +1207,39 @@ def perform_mun_injection_burn(conn, vessel, mun, plan, guard):
     maneuver="injection",
     rcs=safe_value(lambda: vessel.control.rcs),
   )
+  return encounter
 
 
 def read_current_periapsis(vessel):
   return safe_value(lambda: float(vessel.orbit.periapsis_altitude))
 
 
+def get_sas_mode(conn, mode_name):
+  return safe_value(lambda: getattr(conn.space_center.SASMode, mode_name))
+
+
+def aim_sas_mode(conn, vessel, mode_name):
+  mode = get_sas_mode(conn, mode_name)
+
+  if mode is None:
+    return False
+
+  safe_value(lambda: vessel.auto_pilot.disengage())
+  vessel.control.throttle = 0
+  vessel.control.sas = True
+  set_rcs(vessel, True)
+  safe_value(lambda: setattr(vessel.control, "sas_mode", mode))
+  return True
+
+
 def mun_soi_periapsis_trim_candidates():
   return (
-    ("radial_out", (1, 0, 0)),
-    ("radial_in", (-1, 0, 0)),
-    ("normal", (0, 0, 1)),
-    ("anti_normal", (0, 0, -1)),
-    ("prograde", (0, 1, 0)),
-    ("retrograde", (0, -1, 0)),
+    ("radial_out", (1, 0, 0), "radial"),
+    ("radial_in", (-1, 0, 0), "anti_radial"),
+    ("normal", (0, 0, 1), "normal"),
+    ("anti_normal", (0, 0, -1), "anti_normal"),
+    ("prograde", (0, 1, 0), "prograde"),
+    ("retrograde", (0, -1, 0), "retrograde"),
   )
 
 
@@ -1133,6 +1248,60 @@ def mun_soi_periapsis_score(periapsis):
     return None
 
   return abs(periapsis - MUN_FLYBY_SOI_TARGET_PERIAPSIS)
+
+
+def read_mun_trajectory_state(vessel):
+  body_name = safe_value(lambda: vessel.orbit.body.name)
+  apoapsis = safe_value(lambda: float(vessel.orbit.apoapsis_altitude))
+  periapsis = safe_value(lambda: float(vessel.orbit.periapsis_altitude))
+  eccentricity = safe_value(lambda: float(vessel.orbit.eccentricity))
+  captured = (
+    body_name == "Mun"
+    and apoapsis is not None
+    and math.isfinite(apoapsis)
+    and apoapsis > 0
+    and eccentricity is not None
+    and eccentricity < 1
+  )
+  near_capture = (
+    body_name == "Mun"
+    and not captured
+    and apoapsis is not None
+    and math.isfinite(apoapsis)
+    and apoapsis > MUN_FLYBY_SOI_CAPTURE_GUARD_APOAPSIS
+  )
+
+  return {
+    "body": body_name,
+    "apoapsis": apoapsis,
+    "periapsis": periapsis,
+    "eccentricity": eccentricity,
+    "near_capture": near_capture,
+    "trajectory": "captured_orbit" if captured else "flyby",
+  }
+
+
+def mun_trajectory_is_captured(vessel):
+  return read_mun_trajectory_state(vessel).get("trajectory") == "captured_orbit"
+
+
+def mun_soi_periapsis_trim_throttle(periapsis, trajectory_state=None):
+  if periapsis is None:
+    return MUN_FLYBY_SOI_PERIAPSIS_TRIM_THROTTLE
+
+  apoapsis = None if trajectory_state is None else trajectory_state.get("apoapsis")
+  if apoapsis is not None and apoapsis > MUN_FLYBY_SOI_SOFT_CAPTURE_GUARD_APOAPSIS:
+    return MUN_FLYBY_SOI_PERIAPSIS_TRIM_THROTTLE
+
+  error = abs(periapsis - MUN_FLYBY_SOI_TARGET_PERIAPSIS)
+
+  if error > 500000:
+    return MUN_FLYBY_SOI_PERIAPSIS_COARSE_TRIM_THROTTLE
+
+  if error > 150000:
+    return MUN_FLYBY_SOI_PERIAPSIS_MEDIUM_TRIM_THROTTLE
+
+  return MUN_FLYBY_SOI_PERIAPSIS_TRIM_THROTTLE
 
 
 def stage_if_needed(vessel):
@@ -1146,6 +1315,68 @@ def stage_if_needed(vessel):
     return True
 
   return False
+
+
+def escape_mun_impact_if_needed(conn, vessel, guard):
+  periapsis = read_current_periapsis(vessel)
+
+  if periapsis is None or periapsis >= MUN_FLYBY_SOI_IMPACT_ESCAPE_MARGIN:
+    return False
+
+  set_rcs(vessel, True)
+  if not aim_sas_mode(conn, vessel, "prograde"):
+    aim_orbital_direction(vessel, (0, 1, 0))
+
+  time.sleep(MUN_FLYBY_SOI_PERIAPSIS_POINTING_SECONDS)
+  record_mission_event(
+    "mun_flyby_soi_impact_escape_start",
+    "Mun Flyby",
+    periapsis=periapsis,
+    target_periapsis=MUN_FLYBY_SOI_TARGET_PERIAPSIS,
+    throttle=MUN_FLYBY_SOI_IMPACT_ESCAPE_THROTTLE,
+  )
+
+  started_at = time.monotonic()
+  previous_periapsis = periapsis
+
+  while time.monotonic() - started_at < MUN_FLYBY_SOI_IMPACT_ESCAPE_MAX_SECONDS:
+    guard.check()
+    TLM.update("Avoiding Mun impact")
+
+    if not stage_if_needed(vessel):
+      record_mission_event(
+        "mun_flyby_soi_impact_escape_no_thrust",
+        "Mun Flyby",
+        periapsis=read_current_periapsis(vessel),
+      )
+      break
+
+    current_periapsis = read_current_periapsis(vessel)
+
+    if current_periapsis is None:
+      break
+
+    if current_periapsis >= MUN_FLYBY_SOI_TARGET_PERIAPSIS - MUN_FLYBY_SOI_PERIAPSIS_TOLERANCE:
+      break
+
+    if current_periapsis < previous_periapsis - 1500:
+      break
+
+    previous_periapsis = current_periapsis
+    vessel.control.throttle = MUN_FLYBY_SOI_IMPACT_ESCAPE_THROTTLE
+    time.sleep(MUN_FLYBY_BURN_INTERVAL)
+
+  vessel.control.throttle = 0
+  time.sleep(0.2)
+  record_mission_event(
+    "mun_flyby_soi_impact_escape_done",
+    "Mun Flyby",
+    final_periapsis=read_current_periapsis(vessel),
+    target_periapsis=MUN_FLYBY_SOI_TARGET_PERIAPSIS,
+    elapsed_seconds=time.monotonic() - started_at,
+    **read_mun_trajectory_state(vessel),
+  )
+  return True
 
 
 def refine_mun_soi_periapsis(conn, vessel, guard):
@@ -1166,7 +1397,7 @@ def refine_mun_soi_periapsis(conn, vessel, guard):
       "mun_flyby_soi_periapsis_refine_unavailable",
       "Mun Flyby",
     )
-    return
+    return read_mun_trajectory_state(vessel)
 
   if starting_score <= MUN_FLYBY_SOI_PERIAPSIS_TOLERANCE:
     record_mission_event(
@@ -1175,12 +1406,30 @@ def refine_mun_soi_periapsis(conn, vessel, guard):
       periapsis=starting_periapsis,
       target_periapsis=MUN_FLYBY_SOI_TARGET_PERIAPSIS,
     )
-    return
+    return read_mun_trajectory_state(vessel)
+
+  escape_mun_impact_if_needed(conn, vessel, guard)
+  trajectory_state = read_mun_trajectory_state(vessel)
+  if trajectory_state.get("trajectory") == "captured_orbit":
+    return trajectory_state
+
+  starting_periapsis = read_current_periapsis(vessel)
+  starting_score = mun_soi_periapsis_score(starting_periapsis)
+
+  if starting_score is not None and starting_score <= MUN_FLYBY_SOI_PERIAPSIS_TOLERANCE:
+    record_mission_event(
+      "mun_flyby_soi_periapsis_refine_skipped_after_escape",
+      "Mun Flyby",
+      periapsis=starting_periapsis,
+      target_periapsis=MUN_FLYBY_SOI_TARGET_PERIAPSIS,
+    )
+    set_rcs(vessel, False)
+    return read_mun_trajectory_state(vessel)
 
   best_probe = None
   set_rcs(vessel, True)
 
-  for label, direction in mun_soi_periapsis_trim_candidates():
+  for label, direction, sas_mode in mun_soi_periapsis_trim_candidates():
     guard.check()
     stop_warp(conn)
     before = read_current_periapsis(vessel)
@@ -1189,22 +1438,21 @@ def refine_mun_soi_periapsis(conn, vessel, guard):
     if before_score is None:
       continue
 
-    aim_orbital_direction(vessel, direction)
+    if aim_sas_mode(conn, vessel, sas_mode):
+      time.sleep(MUN_FLYBY_SOI_PERIAPSIS_POINTING_SECONDS)
+    else:
+      aim_orbital_direction(vessel, direction)
+      time.sleep(MUN_FLYBY_SOI_PERIAPSIS_POINTING_SECONDS)
 
-    if not wait_for_transfer_alignment(
-      conn,
-      vessel,
-      guard,
-      alignment_reader=lambda direction=direction: read_direction_error_degrees(vessel, direction),
-      max_error=MUN_FLYBY_INCLINATION_ALIGNMENT_ERROR,
-    ):
+    direction_error = read_direction_error_degrees(vessel, direction)
+    if direction_error is not None and direction_error > 75:
       record_mission_event(
-        "mun_flyby_soi_periapsis_probe_alignment_failed",
+        "mun_flyby_soi_periapsis_probe_alignment_loose",
         "Mun Flyby",
         direction=label,
+        direction_error=direction_error,
         periapsis=before,
       )
-      continue
 
     if not stage_if_needed(vessel):
       record_mission_event(
@@ -1212,9 +1460,9 @@ def refine_mun_soi_periapsis(conn, vessel, guard):
         "Mun Flyby",
         periapsis=before,
       )
-      return
+      return read_mun_trajectory_state(vessel)
 
-    vessel.control.throttle = MUN_FLYBY_SOI_PERIAPSIS_TRIM_THROTTLE
+    vessel.control.throttle = MUN_FLYBY_SOI_PERIAPSIS_PROBE_THROTTLE
     time.sleep(MUN_FLYBY_SOI_PERIAPSIS_PROBE_SECONDS)
     vessel.control.throttle = 0
     time.sleep(0.35)
@@ -1222,6 +1470,9 @@ def refine_mun_soi_periapsis(conn, vessel, guard):
     after = read_current_periapsis(vessel)
     after_score = mun_soi_periapsis_score(after)
     improvement = None if after_score is None else before_score - after_score
+    trajectory_state = read_mun_trajectory_state(vessel)
+    captured = trajectory_state.get("trajectory") == "captured_orbit"
+    near_capture = trajectory_state.get("near_capture")
 
     record_mission_event(
       "mun_flyby_soi_periapsis_probe",
@@ -1231,7 +1482,13 @@ def refine_mun_soi_periapsis(conn, vessel, guard):
       after_periapsis=after,
       target_periapsis=MUN_FLYBY_SOI_TARGET_PERIAPSIS,
       improvement=improvement,
+      capture_rejected=captured or near_capture,
+      **trajectory_state,
     )
+
+    if captured or near_capture:
+      set_rcs(vessel, False)
+      return trajectory_state
 
     if improvement is not None and improvement > 0 and (
       best_probe is None or improvement > best_probe["improvement"]
@@ -1239,6 +1496,7 @@ def refine_mun_soi_periapsis(conn, vessel, guard):
       best_probe = {
         "direction": direction,
         "label": label,
+        "sas_mode": sas_mode,
         "improvement": improvement,
         "periapsis": after,
         "score": after_score,
@@ -1249,11 +1507,12 @@ def refine_mun_soi_periapsis(conn, vessel, guard):
         "mun_flyby_soi_periapsis_refine_done",
         "Mun Flyby",
         direction=label,
-        periapsis=after,
+        final_periapsis=after,
         target_periapsis=MUN_FLYBY_SOI_TARGET_PERIAPSIS,
+        **trajectory_state,
       )
       set_rcs(vessel, False)
-      return
+      return trajectory_state
 
   if best_probe is None:
     record_mission_event(
@@ -1263,24 +1522,23 @@ def refine_mun_soi_periapsis(conn, vessel, guard):
       target_periapsis=MUN_FLYBY_SOI_TARGET_PERIAPSIS,
     )
     set_rcs(vessel, False)
-    return
+    return read_mun_trajectory_state(vessel)
 
-  aim_orbital_direction(vessel, best_probe["direction"])
-  if not wait_for_transfer_alignment(
-    conn,
-    vessel,
-    guard,
-    alignment_reader=lambda: read_direction_error_degrees(vessel, best_probe["direction"]),
-    max_error=MUN_FLYBY_INCLINATION_ALIGNMENT_ERROR,
-  ):
+  if aim_sas_mode(conn, vessel, best_probe["sas_mode"]):
+    time.sleep(MUN_FLYBY_SOI_PERIAPSIS_POINTING_SECONDS)
+  else:
+    aim_orbital_direction(vessel, best_probe["direction"])
+    time.sleep(MUN_FLYBY_SOI_PERIAPSIS_POINTING_SECONDS)
+
+  direction_error = read_direction_error_degrees(vessel, best_probe["direction"])
+  if direction_error is not None and direction_error > 75:
     record_mission_event(
-      "mun_flyby_soi_periapsis_trim_alignment_failed",
+      "mun_flyby_soi_periapsis_trim_alignment_loose",
       "Mun Flyby",
       direction=best_probe["label"],
+      direction_error=direction_error,
       periapsis=read_current_periapsis(vessel),
     )
-    set_rcs(vessel, False)
-    return
 
   started_at = time.monotonic()
   previous_score = mun_soi_periapsis_score(read_current_periapsis(vessel))
@@ -1297,7 +1555,33 @@ def refine_mun_soi_periapsis(conn, vessel, guard):
     if score <= MUN_FLYBY_SOI_PERIAPSIS_TOLERANCE:
       break
 
-    if previous_score is not None and score > previous_score + 1000:
+    trajectory_state = read_mun_trajectory_state(vessel)
+    if trajectory_state.get("trajectory") == "captured_orbit":
+      record_mission_event(
+        "mun_flyby_soi_periapsis_trim_capture_detected",
+        "Mun Flyby",
+        direction=best_probe["label"],
+        target_periapsis=MUN_FLYBY_SOI_TARGET_PERIAPSIS,
+        current_periapsis=periapsis,
+        **trajectory_state,
+      )
+      break
+    if trajectory_state.get("near_capture"):
+      record_mission_event(
+        "mun_flyby_soi_periapsis_trim_near_capture",
+        "Mun Flyby",
+        direction=best_probe["label"],
+        target_periapsis=MUN_FLYBY_SOI_TARGET_PERIAPSIS,
+        current_periapsis=periapsis,
+        **trajectory_state,
+      )
+      break
+
+    if (
+      previous_score is not None
+      and score > previous_score + 1000
+      and abs(periapsis - MUN_FLYBY_SOI_TARGET_PERIAPSIS) <= 25000
+    ):
       break
 
     previous_score = score
@@ -1310,24 +1594,29 @@ def refine_mun_soi_periapsis(conn, vessel, guard):
       )
       break
 
-    vessel.control.throttle = MUN_FLYBY_SOI_PERIAPSIS_TRIM_THROTTLE
+    vessel.control.throttle = mun_soi_periapsis_trim_throttle(
+      periapsis, trajectory_state
+    )
     time.sleep(MUN_FLYBY_BURN_INTERVAL)
 
   vessel.control.throttle = 0
   final_periapsis = read_current_periapsis(vessel)
+  trajectory_state = read_mun_trajectory_state(vessel)
   record_mission_event(
     "mun_flyby_soi_periapsis_refine_done",
     "Mun Flyby",
     direction=best_probe["label"],
-    periapsis=final_periapsis,
+    final_periapsis=final_periapsis,
     target_periapsis=MUN_FLYBY_SOI_TARGET_PERIAPSIS,
     tolerance=MUN_FLYBY_SOI_PERIAPSIS_TOLERANCE,
     elapsed_seconds=time.monotonic() - started_at,
+    **trajectory_state,
   )
   set_rcs(vessel, False)
+  return trajectory_state
 
 
-def wait_for_mun_flyby_completion(conn, vessel, mun, plan, guard):
+def wait_for_mun_flyby_completion(conn, vessel, mun, plan, guard, planned_encounter=None):
   kerbin = safe_value(lambda: vessel.orbit.body)
   kerbin_reference_frame = safe_value(lambda: kerbin.non_rotating_reference_frame)
   mun_soi = get_mun_sphere_of_influence(mun)
@@ -1346,6 +1635,21 @@ def wait_for_mun_flyby_completion(conn, vessel, mun, plan, guard):
     time_to_apoapsis=TLM.read("time_to_apoapsis"),
     apoapsis=TLM.read("apoapsis"),
     periapsis=TLM.read("periapsis"),
+  )
+  safe_value(lambda: setattr(vessel.control, "throttle", 0))
+  safe_value(lambda: vessel.auto_pilot.disengage())
+  set_rcs(vessel, False)
+  safe_value(lambda: setattr(vessel.control, "sas", True))
+  stop_warp(conn)
+  record_mission_event(
+    "mun_flyby_coast_rails_ready",
+    "Mun Flyby",
+    throttle=safe_value(lambda: vessel.control.throttle),
+    rcs=safe_value(lambda: vessel.control.rcs),
+    sas=safe_value(lambda: vessel.control.sas),
+    maximum_rails_warp_factor=safe_value(
+      lambda: conn.space_center.maximum_rails_warp_factor
+    ),
   )
 
   while TLM.read("ut") < deadline_ut:
@@ -1369,6 +1673,10 @@ def wait_for_mun_flyby_completion(conn, vessel, mun, plan, guard):
     if not encounter_started and body_name == "Mun":
       encounter_started = True
       stop_warp(conn)
+      deadline_ut = max(
+        deadline_ut,
+        TLM.read("ut") + MUN_FLYBY_SOI_RETURN_DEADLINE_SECONDS,
+      )
       record_mission_event(
         "mun_flyby_soi_change_to_mun",
         "Mun Flyby",
@@ -1378,8 +1686,31 @@ def wait_for_mun_flyby_completion(conn, vessel, mun, plan, guard):
         orbit_patch=orbit_patch,
         apoapsis=TLM.read("apoapsis"),
         periapsis=TLM.read("periapsis"),
+        deadline_ut=deadline_ut,
       )
-      refine_mun_soi_periapsis(conn, vessel, guard)
+      trajectory_state = read_mun_trajectory_state(vessel)
+      record_mission_event(
+        "mun_flyby_mun_soi_trajectory_observed",
+        "Mun Flyby",
+        target_periapsis=MUN_FLYBY_SOI_TARGET_PERIAPSIS,
+        tolerance=MUN_FLYBY_SOI_PERIAPSIS_TOLERANCE,
+        predicted_mun_periapsis=predicted_mun_periapsis(planned_encounter or {}),
+        prediction_source=predicted_mun_periapsis_source(planned_encounter or {}),
+        prediction_error=(
+          None
+          if predicted_mun_periapsis(planned_encounter or {}) is None
+          or trajectory_state.get("periapsis") is None
+          else trajectory_state.get("periapsis")
+          - predicted_mun_periapsis(planned_encounter or {})
+        ),
+        note="No Mun-side periapsis correction; Kerbin-side transfer burn owns the flyby target",
+        **trajectory_state,
+      )
+
+      if (trajectory_state or {}).get("trajectory") == "captured_orbit":
+        raise MissionAborted(
+          "Mun flyby stopped because the Kerbin-side transfer produced Mun capture instead of a flyby"
+        )
 
     if encounter_started:
       TLM.update("Flying by Mun")
@@ -1408,7 +1739,13 @@ def wait_for_mun_flyby_completion(conn, vessel, mun, plan, guard):
       TLM.update("Coasting to Mun encounter")
       time_to_apoapsis = TLM.read("time_to_apoapsis")
 
-      if time_to_apoapsis > 3600:
+      if mun_distance is not None and mun_soi and mun_distance <= mun_soi * 1.2:
+        coast_seconds = 5
+      elif mun_distance is not None and mun_soi and mun_distance <= mun_soi * 1.6:
+        coast_seconds = 15
+      elif mun_distance is not None and mun_soi and mun_distance <= mun_soi * 2.5:
+        coast_seconds = 45
+      elif time_to_apoapsis > 3600:
         coast_seconds = min(1800, max(60, time_to_apoapsis - 1800))
       elif time_to_apoapsis > 900:
         coast_seconds = min(600, max(60, time_to_apoapsis - 600))
@@ -1427,7 +1764,7 @@ def wait_for_mun_flyby_completion(conn, vessel, mun, plan, guard):
       time_to_apoapsis=TLM.read("time_to_apoapsis"),
       coast_seconds=coast_seconds,
     )
-    coast_to_ut(
+    rails_coast_to_ut(
       conn,
       "Flying by Mun" if encounter_started else "Coasting to Mun encounter",
       TLM.read("ut") + coast_seconds,
@@ -1638,13 +1975,17 @@ def flyby_mun():
       )
 
       if orbit_intercept.get("orbit_intercept"):
-        wait_for_mun_flyby_completion(conn, vessel, mun, plan, guard)
+        wait_for_mun_flyby_completion(
+          conn, vessel, mun, plan, guard, orbit_intercept
+        )
         TLM.update("Mun flyby complete")
         return
 
     wait_for_mun_phase(conn, vessel, mun, plan, guard)
-    perform_mun_injection_burn(conn, vessel, mun, plan, guard)
-    wait_for_mun_flyby_completion(conn, vessel, mun, plan, guard)
+    planned_encounter = perform_mun_injection_burn(conn, vessel, mun, plan, guard)
+    wait_for_mun_flyby_completion(
+      conn, vessel, mun, plan, guard, planned_encounter
+    )
     TLM.update("Mun flyby complete")
   except Exception as error:
     record_mission_event("mun_flyby_error", "Mun Flyby", error=str(error))

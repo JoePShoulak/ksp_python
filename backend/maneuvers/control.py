@@ -225,6 +225,21 @@ def coast_to_ut(conn, status, target_ut, warp_factor=RAILS_WARP_FACTOR, guard=No
     allow_physics_fallback=True,
   )
 
+def rails_coast_to_ut(conn, status, target_ut, warp_factor=RAILS_WARP_FACTOR, guard=None):
+  target_ut = max(target_ut, TLM.read("ut"))
+
+  if target_ut <= TLM.read("ut") + 0.5:
+    return
+
+  manual_rails_warp_until(
+    conn,
+    status,
+    lambda: TLM.read("ut") >= target_ut,
+    warp_factor=warp_factor,
+    guard=guard,
+    allow_physics_fallback=False,
+  )
+
 def warp_to_ut(conn, status, target_ut, warp_factor=RAILS_WARP_FACTOR, guard=None):
   if guard:
     guard.check(force=True)

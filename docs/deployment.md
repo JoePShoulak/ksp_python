@@ -1,6 +1,6 @@
 # LAN Production Deployment
 
-This app deploys to the Ubuntu server at `192.168.20.102` and connects to
+This app deploys to the Ubuntu server at `192.168.20.21` and connects to
 KSP/kRPC on the game machine at `192.168.20.104`.
 
 Do not use the older git push-to-deploy flow for production updates. Production
@@ -10,7 +10,7 @@ updates now use a package-copy-extract-apply flow.
 
 ```text
 Browser
-  -> http://192.168.20.102:5173
+  -> http://192.168.20.21:5173
   -> Nginx static frontend
   -> /api proxied to 127.0.0.1:5000
   -> Flask backend
@@ -55,14 +55,14 @@ For first-time setup or system repair, use `bootstrap`.
 What happens:
 
 1. `deploy/package-for-ubuntu.sh` creates `deploy/dist/ksp-control-panel.tar.gz`.
-2. The archive is copied to HP4.
-3. HP4 runs `/usr/local/sbin/ksp-control-panel-apply-deploy`.
+2. The archive is copied to HP1.
+3. HP1 runs `/usr/local/sbin/ksp-control-panel-apply-deploy`.
 4. The packaged `deploy/apply-deploy.sh` copies it into `/opt/ksp-control-panel/app`.
 5. `deploy/ubuntu/deploy.sh` installs dependencies, builds the frontend, applies system config, restarts `ksp-backend`, tests Nginx, and reloads Nginx.
 
 ## First-Time Bootstrap
 
-Run this on HP4 only when setting up the machine or repairing system-level
+Run this on HP1 only when setting up the machine or repairing system-level
 dependencies:
 
 ```bash
@@ -74,7 +74,7 @@ system-config helper, creates the environment file if needed, and installs the
 narrow sudoers rules needed by the package deploy flow.
 
 By default, bootstrap grants passwordless package application to SSH user `leo`.
-Override that one-time with `DEPLOY_OPERATOR=someuser` if the HP4 SSH alias uses
+Override that one-time with `DEPLOY_OPERATOR=someuser` if the HP1 SSH alias uses
 a different account.
 
 ## Production Config
@@ -106,17 +106,19 @@ KSP_CAMERA_PUBLIC_PATH_PREFIX=/jrti
 | Script | Runs on | Purpose |
 | --- | --- | --- |
 | `deploy/package-for-ubuntu.sh` | Dev machine | Creates the tar package |
-| `deploy/source-deploy.sh` | Dev machine | Packages and copies the archive to HP4 |
+| `deploy/source-deploy.sh` | Dev machine | Packages and copies the archive to HP1 |
 | `deploy/manage.sh` | Dev machine | Uniform `deploy`, `up`, `down`, `restart` wrapper |
-| `deploy/apply-deploy.sh` | HP4 | Extracted-package apply step |
-| `deploy/ubuntu/deploy.sh` | HP4 | Actual app build/restart step |
-| `deploy/ubuntu/bootstrap.sh` | HP4 | First-time system setup |
+| `deploy/apply-deploy.sh` | HP1 | Extracted-package apply step |
+| `deploy/ubuntu/deploy.sh` | HP1 | Actual app build/restart step |
+| `deploy/ubuntu/bootstrap.sh` | HP1 | First-time system setup |
 
 ## Health Checks
 
 ```bash
-curl http://192.168.20.102:5000/api/health
-curl -I http://192.168.20.102:5173
-ssh hp4 'sudo systemctl status ksp-backend --no-pager'
-ssh hp4 'sudo nginx -t'
+curl http://192.168.20.21:5000/api/health
+curl -I http://192.168.20.21:5173
+ssh hp1 'sudo systemctl status ksp-backend --no-pager'
+ssh hp1 'sudo nginx -t'
 ```
+
+

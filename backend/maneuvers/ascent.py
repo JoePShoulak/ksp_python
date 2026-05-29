@@ -28,6 +28,7 @@ from .control import read_autopilot_error, reset_manual_controls
 from .descent import configure_suborbital_landing, warp_through_aerobraking
 from .vessel import (
   parachutes_have_deployed,
+  should_stage_spent_solid_boosters,
   stage_has_engine,
   vessel_is_down,
 )
@@ -209,13 +210,6 @@ def gravity_turn_to_orbit(conn, vessel, guard):
 
   peak_stage_thrust = max(0, safe_value(lambda: vessel.available_thrust, 0))
   last_stage = vessel.control.current_stage
-  record_mission_event(
-    "launch_optional_srb_separation_disabled",
-    "Launch",
-    module=__file__,
-    stage=last_stage,
-    available_thrust=peak_stage_thrust,
-  )
 
   while TLM.read("apoapsis") < LAUNCH_TARGET_APOAPSIS:
     TLM.update("Staging to space")
@@ -250,7 +244,21 @@ def gravity_turn_to_orbit(conn, vessel, guard):
     else:
       peak_stage_thrust = max(peak_stage_thrust, available_thrust)
 
-    if available_thrust < 0.1 and stage_has_engine(vessel, next_stage):
+    if should_stage_spent_solid_boosters(vessel, current_stage, next_stage):
+      record_mission_event(
+        "launch_spent_srb_separation",
+        "Launch",
+        altitude=altitude,
+        vertical_speed=vertical_speed,
+        apoapsis=TLM.read("apoapsis"),
+        stage=current_stage,
+        decouple_stage=next_stage,
+        available_thrust=available_thrust,
+      )
+      vessel.control.activate_next_stage()
+      peak_stage_thrust = 0
+      last_stage = safe_value(lambda: vessel.control.current_stage, current_stage)
+    elif available_thrust < 0.1 and stage_has_engine(vessel, next_stage):
       vessel.control.activate_next_stage()
       peak_stage_thrust = 0
       last_stage = safe_value(lambda: vessel.control.current_stage, current_stage)
