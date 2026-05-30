@@ -707,6 +707,60 @@ def get_comms_snapshot(vessel):
     "display_has_signal": display_has_signal,
   }
 
+def normalize_enum_value(value):
+  if value is None:
+    return None
+
+  text = str(value)
+  if "." in text:
+    text = text.rsplit(".", 1)[-1]
+
+  return text.lower()
+
+def get_control_snapshot(vessel, comms=None):
+  if comms is None:
+    comms = get_comms_snapshot(vessel)
+
+  state = normalize_enum_value(safe_value(lambda: vessel.control.state))
+  source = normalize_enum_value(safe_value(lambda: vessel.control.source))
+  input_mode = normalize_enum_value(safe_value(lambda: vessel.control.input_mode))
+
+  if state is not None:
+    has_control = state != "none"
+  elif source is not None:
+    has_control = source != "none"
+  else:
+    has_control = bool(
+      comms.get("has_local_control") or
+      comms.get("has_connection")
+    )
+
+  reason = "controlled"
+  if not has_control:
+    if state == "none":
+      reason = "control_state_none"
+    elif source == "none":
+      reason = "control_source_none"
+    elif not comms.get("has_local_control") and not comms.get("has_connection"):
+      reason = "no_local_control_or_connection"
+    else:
+      reason = "unknown_no_control"
+
+  return {
+    "available": state is not None or source is not None or input_mode is not None,
+    "has_control": has_control,
+    "state": state,
+    "source": source,
+    "input_mode": input_mode,
+    "reason": reason,
+  }
+
+def has_crew_control_from_snapshots(control, comms):
+  if control.get("source") is not None:
+    return control.get("has_control") and control.get("source") == "kerbal"
+
+  return bool(control.get("has_control") and comms.get("has_local_control"))
+
 
 def get_resource_names(vessel):
   names = set()
@@ -858,6 +912,8 @@ def get_vessel_snapshot(conn, vessel, status="nominal", delta_v_profiles=None):
     delta_v_profiles = safe_value(lambda: calc_delta_v_profiles(vessel), {})
 
   delta_v = safe_value(lambda: delta_v_profiles["practical"]["total"], 0)
+  comms = get_comms_snapshot(vessel)
+  control = get_control_snapshot(vessel, comms)
 
   return {
     "status": status,
@@ -883,7 +939,13 @@ def get_vessel_snapshot(conn, vessel, status="nominal", delta_v_profiles=None):
     "liquid_fuel": safe_value(lambda: vessel.resources.amount("LiquidFuel")),
     "stage": safe_value(lambda: vessel.control.current_stage),
     "throttle": safe_value(lambda: vessel.control.throttle),
+    "control_input_mode": control.get("input_mode"),
+    "control_state": control.get("state"),
+    "control_source": control.get("source"),
+    "has_vessel_control": control.get("has_control"),
+    "vessel_control": control,
     "available_thrust": safe_value(lambda: vessel.available_thrust),
+    "thrust": safe_value(lambda: vessel.thrust),
     "delta_v": delta_v,
     "delta_v_current": safe_value(lambda: delta_v_profiles["current"]["total"], delta_v),
     "delta_v_sea_level": safe_value(lambda: delta_v_profiles["sea_level"]["total"], delta_v),
@@ -894,8 +956,8 @@ def get_vessel_snapshot(conn, vessel, status="nominal", delta_v_profiles=None):
     "vessel_name": safe_value(lambda: vessel.name),
     "crew_count": safe_value(lambda: vessel.crew_count, 0),
     "crew_capacity": safe_value(lambda: vessel.crew_capacity, 0),
-    "has_crew_control": safe_value(lambda: vessel.crew_count, 0) > 0,
-    "comms": get_comms_snapshot(vessel),
+    "has_crew_control": has_crew_control_from_snapshots(control, comms),
+    "comms": comms,
     "warp": get_warp_status(conn),
     "resources": get_resource_snapshot(vessel),
     "cameras": get_camera_snapshot(vessel),
@@ -1002,7 +1064,13 @@ class Telemetry:
       "liquid_fuel": liquid_fuel,
       "stage": lambda: vessel.control.current_stage,
       "throttle": lambda: vessel.control.throttle,
+      "control_input_mode": lambda: get_control_snapshot(vessel).get("input_mode"),
+      "control_state": lambda: get_control_snapshot(vessel).get("state"),
+      "control_source": lambda: get_control_snapshot(vessel).get("source"),
+      "has_vessel_control": lambda: get_control_snapshot(vessel).get("has_control"),
+      "vessel_control": lambda: get_control_snapshot(vessel),
       "available_thrust": lambda: vessel.available_thrust,
+      "thrust": lambda: vessel.thrust,
       "situation": lambda: str(vessel.situation),
       "warp": lambda: get_warp_status(conn),
     }
@@ -1022,10 +1090,11 @@ class Telemetry:
     self.update("Telemetry initialized", include_slow=True)
     return True
 
-  def reset(self):
+  def reset(self, preserve_snapshot=False):
     with self._lock:
       conn = self._conn
-      self._data = {}
+      if not preserve_snapshot:
+        self._data = {}
       self._getters = {}
       self._conn = None
       self._vessel = None
@@ -1041,7 +1110,8 @@ class Telemetry:
       self._slow_data = {}
       self._slow_checked_at = 0
       self._timing = {}
-      self._updated_at = 0
+      if not preserve_snapshot:
+        self._updated_at = 0
       self._active_vessel_miss_count = 0
       self._visual_reset_sequence += 1
       self._initialized = False
@@ -1059,6 +1129,8 @@ class Telemetry:
 
     delta_v_profiles = self.read_delta_v_profiles()
     delta_v = safe_value(lambda: delta_v_profiles["practical"]["total"], self.read_delta_v())
+    comms = get_comms_snapshot(self._vessel)
+    control = get_control_snapshot(self._vessel, comms)
 
     self._slow_data = {
       "delta_v": delta_v,
@@ -1070,8 +1142,13 @@ class Telemetry:
       "vessel_name": safe_value(lambda: self._vessel.name),
       "crew_count": safe_value(lambda: self._vessel.crew_count, 0),
       "crew_capacity": safe_value(lambda: self._vessel.crew_capacity, 0),
-      "has_crew_control": safe_value(lambda: self._vessel.crew_count, 0) > 0,
-      "comms": get_comms_snapshot(self._vessel),
+      "has_crew_control": has_crew_control_from_snapshots(control, comms),
+      "has_vessel_control": control.get("has_control"),
+      "control_state": control.get("state"),
+      "control_source": control.get("source"),
+      "control_input_mode": control.get("input_mode"),
+      "vessel_control": control,
+      "comms": comms,
       "resources": get_resource_snapshot(self._vessel),
       "cameras": get_camera_snapshot(self._vessel),
       "kerbin_system": get_kerbin_system_snapshot(self._conn, self._vessel),

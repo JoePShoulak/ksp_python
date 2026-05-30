@@ -311,7 +311,7 @@ def revert_orbit_failure_to_launch(conn, vessel, guard, reason="Orbit failed"):
   record_mission_event("launch_orbit_failed_revert_done", "Launch")
 
 
-def launch_to_orbit(revert_on_orbit_failure=False):
+def launch_to_orbit(revert_on_orbit_failure=False, reset_telemetry_on_close=True):
   conn, vessel = safe_connect("Launch")
   if not conn:
     raise MissionAborted("Launch stopped because no active vessel is available")
@@ -370,4 +370,4 @@ def launch_to_orbit(revert_on_orbit_failure=False):
     raise
   finally:
     safe_value(lambda: setattr(vessel.control, "rcs", False))
-    close_mission_connection(conn)
+    close_mission_connection(conn, reset_telemetry=reset_telemetry_on_close)

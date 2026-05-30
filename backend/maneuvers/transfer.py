@@ -28,6 +28,7 @@ from .constants import (
   MUN_FLYBY_APOAPSIS_CUTOFF_MARGIN,
   MUN_FLYBY_APOAPSIS_CIRCULARIZE_MIN_PERIAPSIS,
   MUN_FLYBY_APOAPSIS_MARGIN,
+  MUN_FLYBY_ACCEPTABLE_TARGETING_PERIAPSIS,
   MUN_FLYBY_BURN_INTERVAL,
   MUN_FLYBY_COARSE_THROTTLE,
   MUN_FLYBY_FINE_THROTTLE,
@@ -42,6 +43,12 @@ from .constants import (
   MUN_FLYBY_MEDIUM_THROTTLE,
   MUN_FLYBY_MIN_SAFE_PERIAPSIS,
   MUN_FLYBY_PHASE_TOLERANCE,
+  MUN_FLYBY_RETURN_BURN_INTERVAL,
+  MUN_FLYBY_RETURN_BURN_MAX_SECONDS,
+  MUN_FLYBY_RETURN_PERIAPSIS_MINIMUM,
+  MUN_FLYBY_RETURN_PERIAPSIS_TOLERANCE,
+  MUN_FLYBY_RETURN_TARGET_PERIAPSIS,
+  MUN_FLYBY_SAMPLED_PERIAPSIS_BIAS,
   MUN_FLYBY_SOI_IMPACT_ESCAPE_MARGIN,
   MUN_FLYBY_SOI_IMPACT_ESCAPE_MAX_SECONDS,
   MUN_FLYBY_SOI_IMPACT_ESCAPE_THROTTLE,
@@ -193,10 +200,7 @@ def calculate_mun_transfer_plan(vessel, mun):
     "max_apoapsis": mun_orbit_radius - kerbin_radius + MUN_FLYBY_TARGETING_APOAPSIS_MARGIN,
     "transfer_time": transfer_time,
     "lead_angle": lead_angle,
-    "phase_targets": (
-      lead_angle,
-      normalize_angle_degrees(-lead_angle),
-    ),
+    "phase_targets": (lead_angle,),
     "estimated_delta_v": max(0, transfer_periapsis_speed - circular_speed),
   }
 
@@ -662,7 +666,7 @@ def predicted_mun_periapsis(encounter):
 
   sampled_periapsis = encounter.get("estimated_orbit_mun_periapsis")
   if sampled_periapsis is not None:
-    return sampled_periapsis
+    return sampled_periapsis - MUN_FLYBY_SAMPLED_PERIAPSIS_BIAS
 
   if encounter.get("geometric_intercept"):
     return encounter.get("estimated_mun_periapsis")
@@ -674,10 +678,17 @@ def predicted_mun_periapsis_source(encounter):
   if encounter.get("mun_periapsis") is not None:
     return "orbit_patch"
   if encounter.get("estimated_orbit_mun_periapsis") is not None:
-    return "sampled_orbit"
+    return "sampled_orbit_bias_corrected"
   if encounter.get("geometric_intercept"):
     return "geometric"
   return None
+
+def mun_flyby_periapsis_is_in_tmi_band(periapsis):
+  return (
+    periapsis is not None
+    and periapsis >= MUN_FLYBY_MIN_SAFE_PERIAPSIS
+    and periapsis <= MUN_FLYBY_ACCEPTABLE_TARGETING_PERIAPSIS
+  )
 
 
 def aim_orbital_retrograde(vessel):
@@ -1027,6 +1038,7 @@ def perform_mun_injection_burn(conn, vessel, mun, plan, guard):
     }
 
     if TLM.read("apoapsis") >= plan["cutoff_apoapsis"]:
+      vessel.control.throttle = 0
       orbit_intercept = estimate_mun_orbit_intercept(vessel, mun, plan)
       encounter = {
         **encounter,
@@ -1077,16 +1089,26 @@ def perform_mun_injection_burn(conn, vessel, mun, plan, guard):
         "mun_flyby_kerbin_side_periapsis_targeting",
         "Mun Flyby",
         predicted_mun_periapsis=mun_periapsis,
+        raw_sampled_mun_periapsis=encounter.get("estimated_orbit_mun_periapsis"),
+        sampled_periapsis_bias=MUN_FLYBY_SAMPLED_PERIAPSIS_BIAS,
         prediction_source=predicted_mun_periapsis_source(encounter),
         periapsis_error=periapsis_error,
         target_mun_periapsis=plan["target_periapsis"],
+        minimum_accepted_mun_periapsis=MUN_FLYBY_MIN_SAFE_PERIAPSIS,
+        maximum_accepted_mun_periapsis=MUN_FLYBY_ACCEPTABLE_TARGETING_PERIAPSIS,
+        periapsis_in_tmi_acceptance_band=mun_flyby_periapsis_is_in_tmi_band(
+          mun_periapsis
+        ),
         time_to_soi_change=encounter.get("time_to_soi_change"),
         apoapsis=TLM.read("apoapsis"),
         orbit_intercept=encounter.get("orbit_intercept"),
         orbit_collision_course=encounter.get("orbit_collision_course"),
       )
 
-      if abs(periapsis_error) <= MUN_FLYBY_TARGET_PERIAPSIS_TOLERANCE:
+      if (
+        mun_flyby_periapsis_is_in_tmi_band(mun_periapsis)
+        and abs(periapsis_error) <= MUN_FLYBY_TARGET_PERIAPSIS_TOLERANCE
+      ):
         break
 
       if (
@@ -1097,38 +1119,58 @@ def perform_mun_injection_burn(conn, vessel, mun, plan, guard):
         + MUN_FLYBY_TARGETING_WORSENING_ABORT
       ):
         vessel.control.throttle = 0
+        if mun_flyby_periapsis_is_in_tmi_band(
+          best_encounter["predicted_mun_periapsis"]
+        ):
+          encounter = best_encounter
+          record_mission_event(
+            "mun_flyby_kerbin_side_best_target_accepted",
+            "Mun Flyby",
+            predicted_mun_periapsis=best_encounter.get("predicted_mun_periapsis"),
+            prediction_source=best_encounter.get("prediction_source"),
+            target_mun_periapsis=plan["target_periapsis"],
+            minimum_accepted_mun_periapsis=MUN_FLYBY_MIN_SAFE_PERIAPSIS,
+            maximum_accepted_mun_periapsis=MUN_FLYBY_ACCEPTABLE_TARGETING_PERIAPSIS,
+            worsening_predicted_mun_periapsis=mun_periapsis,
+            apoapsis=TLM.read("apoapsis"),
+          )
+          break
+
         record_mission_event(
           "mun_flyby_kerbin_side_periapsis_worsening_abort",
           "Mun Flyby",
           predicted_mun_periapsis=mun_periapsis,
+          raw_sampled_mun_periapsis=encounter.get("estimated_orbit_mun_periapsis"),
+          sampled_periapsis_bias=MUN_FLYBY_SAMPLED_PERIAPSIS_BIAS,
           prediction_source=predicted_mun_periapsis_source(encounter),
           best_predicted_mun_periapsis=best_encounter.get(
             "predicted_mun_periapsis"
           ),
           best_prediction_source=best_encounter.get("prediction_source"),
           target_mun_periapsis=plan["target_periapsis"],
+          minimum_accepted_mun_periapsis=MUN_FLYBY_MIN_SAFE_PERIAPSIS,
+          maximum_accepted_mun_periapsis=MUN_FLYBY_ACCEPTABLE_TARGETING_PERIAPSIS,
           apoapsis=TLM.read("apoapsis"),
         )
         raise MissionAborted(
-          "Mun flyby stopped because the one-burn Mun periapsis prediction was moving away from 50 km"
+          "Mun flyby stopped because the one-burn Mun periapsis prediction left the 25-55 km acceptance band"
         )
 
       if mun_periapsis < plan["target_periapsis"] - MUN_FLYBY_TARGET_PERIAPSIS_TOLERANCE:
-        vessel.control.throttle = 0
         record_mission_event(
-          "mun_flyby_kerbin_side_periapsis_overshot",
+          "mun_flyby_kerbin_side_periapsis_low_continue",
           "Mun Flyby",
           predicted_mun_periapsis=mun_periapsis,
+          raw_sampled_mun_periapsis=encounter.get("estimated_orbit_mun_periapsis"),
+          sampled_periapsis_bias=MUN_FLYBY_SAMPLED_PERIAPSIS_BIAS,
           prediction_source=predicted_mun_periapsis_source(encounter),
           target_mun_periapsis=plan["target_periapsis"],
           minimum_safe_periapsis=MUN_FLYBY_MIN_SAFE_PERIAPSIS,
           orbit_collision_course=encounter.get("orbit_collision_course"),
         )
-        if mun_periapsis < MUN_FLYBY_MIN_SAFE_PERIAPSIS:
-          raise MissionAborted(
-            "Mun flyby stopped because the one-burn projected Mun periapsis is too low"
-          )
-        break
+        set_mun_periapsis_trim_throttle(vessel, abs(periapsis_error))
+        time.sleep(MUN_FLYBY_BURN_INTERVAL)
+        continue
 
       set_mun_periapsis_trim_throttle(vessel, periapsis_error)
     else:
@@ -1162,6 +1204,31 @@ def perform_mun_injection_burn(conn, vessel, mun, plan, guard):
       "Mun flyby stopped because the transfer burn did not produce a Mun encounter"
     )
 
+  final_predicted_mun_periapsis = predicted_mun_periapsis(encounter)
+  if not mun_flyby_periapsis_is_in_tmi_band(final_predicted_mun_periapsis):
+    record_mission_event(
+      "mun_flyby_injection_rejected_periapsis_out_of_band",
+      "Mun Flyby",
+      predicted_mun_periapsis=final_predicted_mun_periapsis,
+      prediction_source=predicted_mun_periapsis_source(encounter),
+      target_mun_periapsis=plan["target_periapsis"],
+      minimum_accepted_mun_periapsis=MUN_FLYBY_MIN_SAFE_PERIAPSIS,
+      maximum_accepted_mun_periapsis=MUN_FLYBY_ACCEPTABLE_TARGETING_PERIAPSIS,
+      best_predicted_mun_periapsis=(best_encounter or {}).get(
+        "predicted_mun_periapsis"
+      ),
+      best_prediction_source=(best_encounter or {}).get("prediction_source"),
+      apoapsis=TLM.read("apoapsis"),
+      periapsis=TLM.read("periapsis"),
+      next_body=encounter.get("next_body"),
+      mun_periapsis=encounter.get("mun_periapsis"),
+      raw_sampled_mun_periapsis=encounter.get("estimated_orbit_mun_periapsis"),
+      sampled_periapsis_bias=MUN_FLYBY_SAMPLED_PERIAPSIS_BIAS,
+    )
+    raise MissionAborted(
+      "Mun flyby stopped because the predicted Mun periapsis was outside the 25-55 km TMI acceptance band"
+    )
+
   record_mission_event(
     "mun_flyby_injection_done",
     "Mun Flyby",
@@ -1169,9 +1236,11 @@ def perform_mun_injection_burn(conn, vessel, mun, plan, guard):
     periapsis=TLM.read("periapsis"),
     target_apoapsis=plan["target_apoapsis"],
     target_mun_periapsis=plan["target_periapsis"],
+    minimum_accepted_mun_periapsis=MUN_FLYBY_MIN_SAFE_PERIAPSIS,
+    maximum_accepted_mun_periapsis=MUN_FLYBY_ACCEPTABLE_TARGETING_PERIAPSIS,
     next_body=encounter.get("next_body"),
     mun_periapsis=encounter.get("mun_periapsis"),
-    predicted_mun_periapsis=predicted_mun_periapsis(encounter),
+    predicted_mun_periapsis=final_predicted_mun_periapsis,
     prediction_source=predicted_mun_periapsis_source(encounter),
     best_mun_periapsis=(best_encounter or {}).get("mun_periapsis"),
     best_predicted_mun_periapsis=(best_encounter or {}).get(
@@ -1188,6 +1257,7 @@ def perform_mun_injection_burn(conn, vessel, mun, plan, guard):
     ),
     orbit_intercept=encounter.get("orbit_intercept"),
     orbit_collision_course=encounter.get("orbit_collision_course"),
+    sampled_periapsis_bias=MUN_FLYBY_SAMPLED_PERIAPSIS_BIAS,
     estimated_orbit_mun_miss_distance=encounter.get(
       "estimated_orbit_mun_miss_distance"
     ),
@@ -1212,6 +1282,166 @@ def perform_mun_injection_burn(conn, vessel, mun, plan, guard):
 
 def read_current_periapsis(vessel):
   return safe_value(lambda: float(vessel.orbit.periapsis_altitude))
+
+
+def ensure_vessel_control_for_mun_flyby():
+  if TLM.read("has_vessel_control"):
+    return
+
+  record_mission_event(
+    "mun_flyby_no_vessel_control",
+    "Mun Flyby",
+    vessel_control=TLM.read("vessel_control"),
+    control_state=TLM.read("control_state"),
+    control_source=TLM.read("control_source"),
+    control_input_mode=TLM.read("control_input_mode"),
+  )
+  raise MissionAborted("Mun flyby stopped because the vessel no longer has control")
+
+
+def set_kerbin_return_periapsis_throttle(vessel, periapsis_remaining):
+  if periapsis_remaining > 1000000:
+    vessel.control.throttle = 1.0
+  elif periapsis_remaining > 250000:
+    vessel.control.throttle = 0.35
+  elif periapsis_remaining > 75000:
+    vessel.control.throttle = 0.1
+  else:
+    vessel.control.throttle = 0.02
+
+
+def lower_kerbin_return_periapsis(conn, vessel, guard):
+  body_name = safe_value(lambda: vessel.orbit.body.name)
+  if body_name != "Kerbin":
+    return
+
+  starting_periapsis = TLM.read("periapsis")
+  if starting_periapsis <= MUN_FLYBY_RETURN_TARGET_PERIAPSIS + MUN_FLYBY_RETURN_PERIAPSIS_TOLERANCE:
+    record_mission_event(
+      "mun_flyby_return_periapsis_already_safe",
+      "Mun Flyby",
+      periapsis=starting_periapsis,
+      target_periapsis=MUN_FLYBY_RETURN_TARGET_PERIAPSIS,
+      tolerance=MUN_FLYBY_RETURN_PERIAPSIS_TOLERANCE,
+    )
+    return
+
+  ensure_vessel_control_for_mun_flyby()
+  stop_warp(conn)
+  set_rcs(vessel, True)
+  aim_orbital_retrograde(vessel)
+  record_mission_event(
+    "mun_flyby_return_periapsis_burn_start",
+    "Mun Flyby",
+    apoapsis=TLM.read("apoapsis"),
+    periapsis=starting_periapsis,
+    target_periapsis=MUN_FLYBY_RETURN_TARGET_PERIAPSIS,
+    minimum_periapsis=MUN_FLYBY_RETURN_PERIAPSIS_MINIMUM,
+    time_to_apoapsis=TLM.read("time_to_apoapsis"),
+  )
+
+  if not wait_for_transfer_alignment(
+    conn,
+    vessel,
+    guard,
+    alignment_reader=lambda: read_direction_error_degrees(vessel, (0, -1, 0)),
+    max_error=20,
+  ):
+    raise MissionAborted("Mun flyby stopped because return periapsis alignment did not settle")
+
+  started_at = time.monotonic()
+  best_periapsis = starting_periapsis
+
+  while TLM.read("periapsis") > MUN_FLYBY_RETURN_TARGET_PERIAPSIS:
+    guard.check()
+    ensure_vessel_control_for_mun_flyby()
+    TLM.update("Lowering Kerbin return periapsis")
+    periapsis = TLM.read("periapsis")
+    best_periapsis = min(best_periapsis, periapsis)
+
+    if periapsis <= MUN_FLYBY_RETURN_PERIAPSIS_MINIMUM:
+      break
+
+    if time.monotonic() - started_at > MUN_FLYBY_RETURN_BURN_MAX_SECONDS:
+      vessel.control.throttle = 0
+      record_mission_event(
+        "mun_flyby_return_periapsis_burn_timeout",
+        "Mun Flyby",
+        periapsis=periapsis,
+        best_periapsis=best_periapsis,
+        target_periapsis=MUN_FLYBY_RETURN_TARGET_PERIAPSIS,
+        elapsed_seconds=time.monotonic() - started_at,
+      )
+      raise MissionAborted("Mun flyby stopped because Kerbin return periapsis was not lowered in time")
+
+    if vessel.available_thrust < 0.1:
+      current_stage = vessel.control.current_stage
+      next_stage = current_stage - 1
+      if stage_has_engine(vessel, next_stage):
+        vessel.control.activate_next_stage()
+      else:
+        vessel.control.throttle = 0
+        raise MissionAborted("Mun flyby stopped because the vessel ran out of thrust while lowering Kerbin return periapsis")
+
+    set_kerbin_return_periapsis_throttle(
+      vessel,
+      periapsis - MUN_FLYBY_RETURN_TARGET_PERIAPSIS,
+    )
+    time.sleep(MUN_FLYBY_RETURN_BURN_INTERVAL)
+
+  vessel.control.throttle = 0
+  set_rcs(vessel, False)
+  final_periapsis = TLM.read("periapsis")
+  record_mission_event(
+    "mun_flyby_return_periapsis_burn_done",
+    "Mun Flyby",
+    apoapsis=TLM.read("apoapsis"),
+    periapsis=final_periapsis,
+    target_periapsis=MUN_FLYBY_RETURN_TARGET_PERIAPSIS,
+    minimum_periapsis=MUN_FLYBY_RETURN_PERIAPSIS_MINIMUM,
+    elapsed_seconds=time.monotonic() - started_at,
+  )
+
+  if final_periapsis > MUN_FLYBY_RETURN_TARGET_PERIAPSIS + MUN_FLYBY_RETURN_PERIAPSIS_TOLERANCE:
+    raise MissionAborted("Mun flyby stopped because Kerbin return periapsis remained above atmosphere")
+  if final_periapsis < MUN_FLYBY_RETURN_PERIAPSIS_MINIMUM:
+    raise MissionAborted("Mun flyby stopped because Kerbin return periapsis was lowered too far")
+
+
+def lower_kerbin_return_periapsis_action():
+  record_mission_event("return_recovery_enter", "Return Recovery")
+  conn, vessel = safe_connect("Return Recovery")
+  if not conn:
+    record_mission_event("return_recovery_no_connection", "Return Recovery")
+    raise MissionAborted("Return recovery stopped because no active vessel is available")
+
+  register_mission_connection(conn, vessel, "Return Recovery")
+  guard = MissionGuard(conn, vessel, "Return Recovery")
+
+  try:
+    TLM.begin(conn, vessel)
+    body_name = safe_value(lambda: vessel.orbit.body.name)
+    if body_name != "Kerbin":
+      raise MissionAborted(
+        f"Return recovery stopped because the vessel is orbiting {body_name or 'unknown'}, not Kerbin"
+      )
+
+    lower_kerbin_return_periapsis(conn, vessel, guard)
+    record_mission_event(
+      "return_recovery_done",
+      "Return Recovery",
+      apoapsis=TLM.read("apoapsis"),
+      periapsis=TLM.read("periapsis"),
+      target_periapsis=MUN_FLYBY_RETURN_TARGET_PERIAPSIS,
+    )
+  except Exception as error:
+    record_mission_event("return_recovery_error", "Return Recovery", error=str(error))
+    if is_vessel_lost_error(error):
+      raise MissionAborted(mission_aborted_message("Return Recovery")) from error
+    raise
+  finally:
+    record_mission_event("return_recovery_close", "Return Recovery")
+    close_mission_connection(conn)
 
 
 def get_sas_mode(conn, mode_name):
@@ -1694,6 +1924,8 @@ def wait_for_mun_flyby_completion(conn, vessel, mun, plan, guard, planned_encoun
         "Mun Flyby",
         target_periapsis=MUN_FLYBY_SOI_TARGET_PERIAPSIS,
         tolerance=MUN_FLYBY_SOI_PERIAPSIS_TOLERANCE,
+        minimum_accepted_mun_periapsis=MUN_FLYBY_MIN_SAFE_PERIAPSIS,
+        maximum_accepted_mun_periapsis=MUN_FLYBY_ACCEPTABLE_TARGETING_PERIAPSIS,
         predicted_mun_periapsis=predicted_mun_periapsis(planned_encounter or {}),
         prediction_source=predicted_mun_periapsis_source(planned_encounter or {}),
         prediction_error=(
@@ -1712,10 +1944,24 @@ def wait_for_mun_flyby_completion(conn, vessel, mun, plan, guard, planned_encoun
           "Mun flyby stopped because the Kerbin-side transfer produced Mun capture instead of a flyby"
         )
 
+      actual_periapsis = trajectory_state.get("periapsis")
+      if actual_periapsis is not None and actual_periapsis < MUN_FLYBY_MIN_SAFE_PERIAPSIS:
+        raise MissionAborted(
+          "Mun flyby stopped because the Kerbin-side transfer produced an unsafe Mun periapsis"
+        )
+      if (
+        actual_periapsis is not None
+        and actual_periapsis > MUN_FLYBY_ACCEPTABLE_TARGETING_PERIAPSIS
+      ):
+        raise MissionAborted(
+          "Mun flyby stopped because the Kerbin-side transfer produced a Mun periapsis above 55 km"
+        )
+
     if encounter_started:
       TLM.update("Flying by Mun")
 
       if body_name == "Kerbin" and mun_distance and mun_distance > mun_soi * 1.1:
+        lower_kerbin_return_periapsis(conn, vessel, guard)
         record_mission_event(
           "mun_flyby_soi_return_to_kerbin",
           "Mun Flyby",

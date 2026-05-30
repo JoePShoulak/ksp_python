@@ -35,7 +35,9 @@ from maneuvers.launch import (
   flyby_mun,
   land_rocket,
   launch_to_orbit,
+  lower_kerbin_return_periapsis_action,
   lko_tourism,
+  suborbital_landing,
   wait_for_launch_revert,
   wait_one_hour,
 )
@@ -238,7 +240,7 @@ def run_action_thread(action, callback, abort_sequence):
       record_mission_event("action_start_cancelled", action)
       return
 
-    TLM.reset()
+    TLM.reset(preserve_snapshot=True)
     start_flight(action)
     callback()
   except MissionAborted as error:
@@ -623,6 +625,22 @@ def land_rocket_route():
     "Landing started",
   )
 
+@app.route("/api/actions/suborbital_landing", methods=["POST"])
+def suborbital_landing_route():
+  return run_action(
+    "suborbital_landing",
+    suborbital_landing,
+    "Emergency landing started",
+  )
+
+@app.route("/api/actions/return_recovery", methods=["POST"])
+def return_recovery_route():
+  return run_action(
+    "return_recovery",
+    lower_kerbin_return_periapsis_action,
+    "Return recovery started",
+  )
+
 
 @app.route("/api/actions/wait_one_hour", methods=["POST"])
 def wait_one_hour_route():
@@ -753,7 +771,7 @@ def get_telemetry():
   mission = get_registered_mission()
 
   if snapshot:
-    if not mission:
+    if not mission and not action_is_starting_or_running():
       snapshot["status"] = "Idle"
 
     return build_telemetry_response(snapshot, "stream")

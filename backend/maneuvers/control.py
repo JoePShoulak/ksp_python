@@ -167,11 +167,10 @@ def manual_rails_warp_until(
   allow_physics_fallback=False,
   physics_fallback_after=1.0,
 ):
-  max_warp = conn.space_center.maximum_rails_warp_factor
-  selected_warp = min(warp_factor, max_warp)
   fallback_pending_since = None
   use_physics_fallback = False
   fallback_reported = False
+  last_slow_warp_report = 0
 
   if abort_condition is None:
     abort_condition = lambda: False
@@ -186,9 +185,29 @@ def manual_rails_warp_until(
       if use_physics_fallback:
         set_physics_warp(conn, DESCENT_PHYSICS_WARP_FACTOR)
       else:
+        max_warp = conn.space_center.maximum_rails_warp_factor
+        selected_warp = min(warp_factor, max_warp)
         set_rails_warp(conn, selected_warp)
+        current_warp = get_current_warp_factor(conn)
 
-        if allow_physics_fallback and get_current_warp_factor(conn) <= 1:
+        if (
+          selected_warp < warp_factor
+          or current_warp < selected_warp
+        ):
+          now = time.monotonic()
+          if now - last_slow_warp_report >= 15:
+            record_mission_event(
+              "rails_warp_rate_limited",
+              None,
+              status=status,
+              target_warp=warp_factor,
+              selected_warp=selected_warp,
+              current_warp=current_warp,
+              maximum_rails_warp=max_warp,
+            )
+            last_slow_warp_report = now
+
+        if allow_physics_fallback and current_warp <= 1:
           if fallback_pending_since is None:
             fallback_pending_since = time.monotonic()
           elif time.monotonic() - fallback_pending_since >= physics_fallback_after:

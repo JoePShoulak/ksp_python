@@ -61,10 +61,11 @@ def is_graceful_vessel_lost_message(message):
   return "active vessel is no longer available" in str(message)
 
 
-def close_mission_connection(conn):
+def close_mission_connection(conn, reset_telemetry=True):
   record_mission_event("close_connection")
   close_connection(conn)
-  TLM.reset()
+  if reset_telemetry:
+    TLM.reset()
   unregister_mission_connection(conn)
 
 

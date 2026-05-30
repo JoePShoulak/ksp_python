@@ -21,7 +21,7 @@ from .constants import (
 from .control import manual_rails_warp_until
 from .descent import land_rocket
 
-def wait_one_hour():
+def wait_one_hour(reset_telemetry_on_close=True):
   record_mission_event("wait_enter", "Wait")
   conn, vessel = safe_connect("Wait")
   if not conn:
@@ -68,7 +68,7 @@ def wait_one_hour():
     raise
   finally:
     record_mission_event("wait_close", "Wait")
-    close_mission_connection(conn)
+    close_mission_connection(conn, reset_telemetry=reset_telemetry_on_close)
 
 def vessel_is_ready_for_retry(vessel):
   situation = str(safe_value(lambda: vessel.situation, "")).split(".")[-1].lower()
@@ -159,7 +159,10 @@ def lko_tourism(revert_on_failure=False, retry_on_revert=False):
       retry_on_revert=retry_on_revert,
     )
 
-    if launch_to_orbit(revert_on_orbit_failure=revert_on_failure):
+    if launch_to_orbit(
+      revert_on_orbit_failure=revert_on_failure,
+      reset_telemetry_on_close=False,
+    ):
       break
 
     record_mission_event("lko_sequence_orbit_failed", "lko_tourism", attempt=attempt)
@@ -182,7 +185,7 @@ def lko_tourism(revert_on_failure=False, retry_on_revert=False):
     attempt += 1
 
   record_mission_event("lko_sequence_wait_start", "lko_tourism")
-  wait_one_hour()
+  wait_one_hour(reset_telemetry_on_close=False)
   record_mission_event("lko_sequence_land_start", "lko_tourism")
   land_rocket()
   record_mission_event("lko_sequence_done", "lko_tourism")

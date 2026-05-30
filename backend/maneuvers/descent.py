@@ -1,6 +1,6 @@
 import time
 
-from krpc_utils import safe_connect, stop_warp
+from krpc_utils import safe_connect, safe_value, stop_warp
 from mission_state import (
   MissionAborted,
   MissionGuard,
@@ -29,14 +29,20 @@ from .constants import (
   RAILS_WARP_FACTOR,
 )
 from .control import (
-  coast_to_ut,
   maintain_coast_warp,
   maintain_physics_warp,
+  manual_rails_warp_until,
+  manual_physics_warp_until,
   rails_warp_to_atmosphere,
   read_autopilot_error,
   wait_for_autopilot_alignment,
 )
-from .vessel import has_usable_thrust, vessel_is_down
+from .vessel import (
+  engine_uses_resource,
+  has_usable_thrust,
+  stage_has_engine,
+  vessel_is_down,
+)
 
 def configure_suborbital_landing(conn, vessel, guard, dump_stages=False):
   TLM.update("Preparing suborbital landing")
@@ -59,6 +65,14 @@ def configure_suborbital_landing(conn, vessel, guard, dump_stages=False):
 
 def burn_remaining_fuel_for_descent(conn, vessel, guard):
   if not has_usable_thrust(vessel):
+    record_mission_event(
+      "land_speed_dump_skipped_no_thrust",
+      "Land",
+      altitude=TLM.read("altitude"),
+      apoapsis=TLM.read("apoapsis"),
+      periapsis=TLM.read("periapsis"),
+      liquid_fuel=TLM.read("liquid_fuel"),
+    )
     return
 
   while (
@@ -99,7 +113,7 @@ def burn_remaining_fuel_for_descent(conn, vessel, guard):
       periapsis=TLM.read("periapsis"),
       autopilot_error=read_autopilot_error(vessel),
     )
-    raise MissionAborted("Land stopped because speed dump alignment did not settle")
+    return
 
   record_mission_event(
     "land_speed_dump_burn_start",
@@ -142,7 +156,16 @@ def burn_remaining_fuel_for_descent(conn, vessel, guard):
         warp_while_waiting=True,
         stable_duration=0.25,
       ):
-        raise MissionAborted("Land stopped because speed dump alignment was lost")
+        record_mission_event(
+          "land_speed_dump_abandoned_alignment",
+          "Land",
+          altitude=TLM.read("altitude"),
+          apoapsis=TLM.read("apoapsis"),
+          periapsis=TLM.read("periapsis"),
+          autopilot_error=read_autopilot_error(vessel),
+        )
+        vessel.control.throttle = 0
+        break
 
     if vessel.control.throttle < 1.0:
       vessel.control.throttle = 1.0
@@ -229,6 +252,183 @@ def aim_landing_retrograde(vessel):
   vessel.auto_pilot.target_direction = (0, -1, 0)
   vessel.auto_pilot.target_roll = 0
 
+def ensure_vessel_control_available():
+  if TLM.read("has_vessel_control"):
+    return
+
+  record_mission_event(
+    "land_no_vessel_control",
+    "Land",
+    vessel_control=TLM.read("vessel_control"),
+    control_state=TLM.read("control_state"),
+    control_source=TLM.read("control_source"),
+    control_input_mode=TLM.read("control_input_mode"),
+  )
+  raise MissionAborted("Land stopped because the vessel no longer has control")
+
+def ensure_deorbit_thrust(vessel, guard):
+  ensure_vessel_control_available()
+
+  if has_usable_thrust(vessel) and deorbit_engine_is_active(vessel):
+    return
+
+  activate_deorbit_engines(vessel)
+  if has_usable_thrust(vessel) and deorbit_engine_is_active(vessel):
+    return
+
+  current_stage = vessel.control.current_stage
+  next_stage = current_stage - 1
+  if stage_has_engine(vessel, next_stage):
+    record_mission_event(
+      "land_deorbit_stage_for_thrust",
+      "Land",
+      current_stage=current_stage,
+      next_stage=next_stage,
+      available_thrust=vessel.available_thrust,
+      liquid_fuel=TLM.read("liquid_fuel"),
+      control_input_mode=TLM.read("control_input_mode"),
+    )
+    vessel.control.activate_next_stage()
+    time.sleep(0.5)
+    guard.check(force=True)
+    activate_deorbit_engines(vessel)
+
+  if not has_usable_thrust(vessel) or not deorbit_engine_is_active(vessel):
+    record_mission_event(
+      "land_deorbit_no_usable_thrust",
+      "Land",
+      current_stage=vessel.control.current_stage,
+      available_thrust=vessel.available_thrust,
+      liquid_fuel=TLM.read("liquid_fuel"),
+      engine_active=deorbit_engine_is_active(vessel),
+      control_input_mode=TLM.read("control_input_mode"),
+    )
+    raise MissionAborted("Land stopped because no usable deorbit thrust is available")
+
+def deorbit_engine_is_active(vessel):
+  return any(
+    safe_value(lambda engine=engine: engine.active, False)
+    and not engine_uses_resource(engine, "SolidFuel")
+    and safe_value(lambda engine=engine: float(engine.available_thrust), 0) > 0.1
+    for engine in safe_value(lambda: list(vessel.parts.engines), [])
+  )
+
+def activate_deorbit_engines(vessel):
+  activated = 0
+
+  for engine in safe_value(lambda: list(vessel.parts.engines), []):
+    if engine_uses_resource(engine, "SolidFuel"):
+      continue
+    if safe_value(lambda engine=engine: float(engine.available_thrust), 0) <= 0.1:
+      continue
+    if safe_value(lambda engine=engine: engine.active, False):
+      continue
+
+    try:
+      engine.active = True
+      activated += 1
+    except Exception:
+      pass
+
+  if activated:
+    record_mission_event(
+      "land_deorbit_engines_activated",
+      "Land",
+      activated_engines=activated,
+    )
+
+def read_actual_thrust(vessel):
+  return safe_value(lambda: float(vessel.thrust), 0) or 0
+
+def confirm_deorbit_burn_is_live(vessel, guard, starting_fuel):
+  for attempt in range(3):
+    time.sleep(0.5)
+    guard.check(force=True)
+
+    current_fuel = TLM.read("liquid_fuel")
+    actual_thrust = read_actual_thrust(vessel)
+    if actual_thrust > 1 or current_fuel < starting_fuel - 0.01:
+      return
+
+    record_mission_event(
+      "land_deorbit_burn_not_lit",
+      "Land",
+      attempt=attempt + 1,
+      actual_thrust=actual_thrust,
+      available_thrust=vessel.available_thrust,
+      throttle=vessel.control.throttle,
+      liquid_fuel=current_fuel,
+      engine_active=deorbit_engine_is_active(vessel),
+      control_input_mode=TLM.read("control_input_mode"),
+      vessel_control=TLM.read("vessel_control"),
+    )
+    activate_deorbit_engines(vessel)
+
+    current_stage = vessel.control.current_stage
+    next_stage = current_stage - 1
+    if stage_has_engine(vessel, next_stage):
+      vessel.control.activate_next_stage()
+      time.sleep(0.2)
+      activate_deorbit_engines(vessel)
+
+  vessel.control.throttle = 0
+  raise MissionAborted("Land stopped because the deorbit engine did not produce thrust")
+
+def choose_deorbit_alignment_ut():
+  now = TLM.read("ut")
+  time_to_apoapsis = TLM.read("time_to_apoapsis")
+
+  apoapsis_arrival_ut = now + time_to_apoapsis
+  alignment_ut = max(
+    now,
+    apoapsis_arrival_ut - LANDING_DEORBIT_ALIGNMENT_BUFFER,
+  )
+  burn_start_ut = max(
+    now,
+    apoapsis_arrival_ut - LANDING_DEORBIT_BURN_LEAD_TIME,
+  )
+
+  return apoapsis_arrival_ut, alignment_ut, burn_start_ut
+
+def coast_to_deorbit_alignment(conn, guard, alignment_ut):
+  try:
+    while TLM.read("ut") < alignment_ut:
+      guard.check()
+      ensure_vessel_control_available()
+      TLM.update("Warping to deorbit alignment")
+      remaining = alignment_ut - TLM.read("ut")
+
+      if remaining > 3600:
+        warp_factor = RAILS_WARP_FACTOR
+      elif remaining > 900:
+        warp_factor = min(5, RAILS_WARP_FACTOR)
+      elif remaining > 240:
+        warp_factor = min(4, RAILS_WARP_FACTOR)
+      elif remaining > 90:
+        warp_factor = min(3, RAILS_WARP_FACTOR)
+      elif remaining > 20:
+        warp_factor = 1
+      else:
+        break
+
+      manual_rails_warp_until(
+        conn,
+        "Warping to deorbit alignment",
+        lambda: TLM.read("ut") >= alignment_ut or alignment_ut - TLM.read("ut") <= remaining / 2,
+        warp_factor=warp_factor,
+        update_interval=0.1,
+        guard=guard,
+        allow_physics_fallback=False,
+      )
+
+    while TLM.read("ut") < alignment_ut:
+      guard.check()
+      ensure_vessel_control_available()
+      TLM.update("Final coast to deorbit alignment")
+      time.sleep(0.05)
+  finally:
+    stop_warp(conn)
+
 def suborbital_landing():
   conn, vessel = safe_connect("Launch")
   if not conn:
@@ -265,6 +465,7 @@ def land_rocket():
     record_mission_event("land_tlm_begin_start", "Land")
     TLM.begin(conn, vessel)
     record_mission_event("land_tlm_begin_done", "Land")
+    ensure_vessel_control_available()
 
     body_name = getattr(vessel.orbit.body, "name", None)
     if body_name != "Kerbin":
@@ -281,15 +482,7 @@ def land_rocket():
     aim_landing_retrograde(vessel)
     record_mission_event("land_autopilot_setup_done", "Land")
 
-    apoapsis_arrival_ut = TLM.read("ut") + TLM.read("time_to_apoapsis")
-    alignment_ut = max(
-      TLM.read("ut"),
-      apoapsis_arrival_ut - LANDING_DEORBIT_ALIGNMENT_BUFFER,
-    )
-    burn_start_ut = max(
-      TLM.read("ut"),
-      apoapsis_arrival_ut - LANDING_DEORBIT_BURN_LEAD_TIME,
-    )
+    apoapsis_arrival_ut, alignment_ut, burn_start_ut = choose_deorbit_alignment_ut()
     record_mission_event(
       "land_warp_to_alignment_start",
       "Land",
@@ -297,15 +490,10 @@ def land_rocket():
       alignment_ut=alignment_ut,
       burn_start_ut=burn_start_ut,
       time_to_apoapsis=TLM.read("time_to_apoapsis"),
+      orbital_period=TLM.read("orbital_period"),
     )
 
-    coast_to_ut(
-      conn,
-      "Warping to deorbit alignment",
-      alignment_ut,
-      warp_factor=RAILS_WARP_FACTOR,
-      guard=guard,
-    )
+    coast_to_deorbit_alignment(conn, guard, alignment_ut)
 
     record_mission_event(
       "land_warp_to_alignment_done",
@@ -363,8 +551,13 @@ def land_rocket():
           ):
             raise MissionAborted("Land stopped because retrograde alignment was lost before deorbit burn")
 
-        maintain_coast_warp(conn)
-        time.sleep(0.05)
+        manual_physics_warp_until(
+          conn,
+          "Waiting for deorbit burn",
+          lambda: TLM.read("ut") >= burn_start_ut,
+          warp_factor=3,
+          guard=guard,
+        )
     finally:
       stop_warp(conn)
 
@@ -396,8 +589,12 @@ def land_rocket():
       periapsis=TLM.read("periapsis"),
     )
 
+    ensure_deorbit_thrust(vessel, guard)
+    ensure_vessel_control_available()
     TLM.update("Lowering periapsis")
+    starting_fuel = TLM.read("liquid_fuel")
     vessel.control.throttle = LANDING_DEORBIT_THROTTLE
+    confirm_deorbit_burn_is_live(vessel, guard, starting_fuel)
     record_mission_event(
       "land_deorbit_burn_start",
       "Land",
@@ -405,6 +602,9 @@ def land_rocket():
       time_to_apoapsis=TLM.read("time_to_apoapsis"),
       apoapsis=TLM.read("apoapsis"),
       periapsis=TLM.read("periapsis"),
+      available_thrust=vessel.available_thrust,
+      actual_thrust=read_actual_thrust(vessel),
+      liquid_fuel=TLM.read("liquid_fuel"),
       throttle=LANDING_DEORBIT_THROTTLE,
     )
     burn_started_at = time.monotonic()
@@ -429,6 +629,9 @@ def land_rocket():
           periapsis=current_periapsis,
           best_periapsis=best_periapsis,
           target_periapsis=LANDING_DEORBIT_PERIAPSIS,
+          available_thrust=vessel.available_thrust,
+          actual_thrust=read_actual_thrust(vessel),
+          liquid_fuel=TLM.read("liquid_fuel"),
           throttle=vessel.control.throttle,
           elapsed_seconds=time.monotonic() - burn_started_at,
         )
@@ -442,6 +645,9 @@ def land_rocket():
           apoapsis=TLM.read("apoapsis"),
           periapsis=current_periapsis,
           best_periapsis=best_periapsis,
+          available_thrust=vessel.available_thrust,
+          actual_thrust=read_actual_thrust(vessel),
+          liquid_fuel=TLM.read("liquid_fuel"),
           throttle=LANDING_DEORBIT_THROTTLE,
           elapsed_seconds=time.monotonic() - burn_started_at,
         )
@@ -467,6 +673,16 @@ def land_rocket():
           conn=conn,
           warp_while_waiting=True,
         ):
+          if TLM.read("periapsis") <= LANDING_ATMOSPHERE_ALTITUDE:
+            record_mission_event(
+              "land_deorbit_alignment_abandoned_suborbital",
+              "Land",
+              autopilot_error=read_autopilot_error(vessel),
+              apoapsis=TLM.read("apoapsis"),
+              periapsis=TLM.read("periapsis"),
+            )
+            break
+
           raise MissionAborted("Land stopped because retrograde alignment was lost")
 
         vessel.control.throttle = LANDING_DEORBIT_THROTTLE
